@@ -1,4 +1,4 @@
-package io.codemine.java.reachpg;
+package io.codemine.java.richpg;
 
 import java.util.ArrayList;
 import java.util.List;

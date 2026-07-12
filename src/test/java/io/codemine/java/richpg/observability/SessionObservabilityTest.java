@@ -1,4 +1,4 @@
-package io.codemine.java.reachpg.observability;
+package io.codemine.java.richpg.observability;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import io.codemine.java.postgresql.jdbc.Statement;
 import io.codemine.java.postgresql.jdbc.TransactionSettings;
-import io.codemine.java.reachpg.ReachPgConfig;
+import io.codemine.java.richpg.RichPgConfig;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
@@ -72,8 +72,8 @@ class SessionObservabilityTest {
     meterProvider.close();
   }
 
-  private ReachPgConfig config() {
-    return ReachPgConfig.defaults(
+  private RichPgConfig config() {
+    return RichPgConfig.defaults(
             "jdbc:postgresql://localhost/test?password=secret", "alice", "secret")
         .withOpenTelemetry(openTelemetry)
         .withPoolName("test-pool")

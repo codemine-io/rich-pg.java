@@ -1,4 +1,4 @@
-package io.codemine.java.reachpg;
+package io.codemine.java.richpg;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -9,10 +9,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
-class ReachPgConfigTest {
+class RichPgConfigTest {
 
-  private static ReachPgConfig defaults() {
-    return ReachPgConfig.defaults("jdbc:postgresql://localhost/test", "user", "pw");
+  private static RichPgConfig defaults() {
+    return RichPgConfig.defaults("jdbc:postgresql://localhost/test", "user", "pw");
   }
 
   @Test
@@ -39,21 +39,21 @@ class ReachPgConfigTest {
   void defaultsPopulatesIdentityFieldsWithGenericDefaults() {
     var config = defaults();
 
-    assertEquals("io.codemine.java.reach-pg", config.scopeName());
+    assertEquals("io.codemine.java.rich-pg", config.scopeName());
     assertEquals("1.0.0", config.scopeVersion());
-    assertEquals("reach-pg-pool", config.poolName());
-    assertEquals("reach-pg", config.artifactName());
+    assertEquals("rich-pg-pool", config.poolName());
+    assertEquals("rich-pg", config.artifactName());
   }
 
   @Test
   void requiredFieldsCannotBeNull() {
-    assertThrows(NullPointerException.class, () -> ReachPgConfig.defaults(null, "user", "pw"));
+    assertThrows(NullPointerException.class, () -> RichPgConfig.defaults(null, "user", "pw"));
     assertThrows(
         NullPointerException.class,
-        () -> ReachPgConfig.defaults("jdbc:postgresql://localhost/test", null, "pw"));
+        () -> RichPgConfig.defaults("jdbc:postgresql://localhost/test", null, "pw"));
     assertThrows(
         NullPointerException.class,
-        () -> ReachPgConfig.defaults("jdbc:postgresql://localhost/test", "user", null));
+        () -> RichPgConfig.defaults("jdbc:postgresql://localhost/test", "user", null));
   }
 
   @Test
@@ -123,7 +123,7 @@ class ReachPgConfigTest {
   void withersPreserveEveryOtherField() {
     var tweaked = defaults().withMaximumPoolSize(42);
     var expected =
-        new ReachPgConfig(
+        new RichPgConfig(
             "jdbc:postgresql://localhost/test",
             "user",
             "pw",
@@ -133,10 +133,10 @@ class ReachPgConfigTest {
             3,
             Duration.ofSeconds(1),
             tweaked.openTelemetry(),
-            "io.codemine.java.reach-pg",
+            "io.codemine.java.rich-pg",
             "1.0.0",
-            "reach-pg-pool",
-            "reach-pg");
+            "rich-pg-pool",
+            "rich-pg");
 
     assertEquals(expected, tweaked);
   }
@@ -145,7 +145,7 @@ class ReachPgConfigTest {
   void withScopeNamePreservesEveryOtherField() {
     var tweaked = defaults().withScopeName("io.pgenie.artifacts.myspace.musiccatalogue");
     var expected =
-        new ReachPgConfig(
+        new RichPgConfig(
             "jdbc:postgresql://localhost/test",
             "user",
             "pw",
@@ -157,8 +157,8 @@ class ReachPgConfigTest {
             tweaked.openTelemetry(),
             "io.pgenie.artifacts.myspace.musiccatalogue",
             "1.0.0",
-            "reach-pg-pool",
-            "reach-pg");
+            "rich-pg-pool",
+            "rich-pg");
 
     assertEquals(expected, tweaked);
   }
@@ -167,7 +167,7 @@ class ReachPgConfigTest {
   void withScopeVersionPreservesEveryOtherField() {
     var tweaked = defaults().withScopeVersion("1.0.1");
     var expected =
-        new ReachPgConfig(
+        new RichPgConfig(
             "jdbc:postgresql://localhost/test",
             "user",
             "pw",
@@ -177,10 +177,10 @@ class ReachPgConfigTest {
             3,
             Duration.ofSeconds(1),
             tweaked.openTelemetry(),
-            "io.codemine.java.reach-pg",
+            "io.codemine.java.rich-pg",
             "1.0.1",
-            "reach-pg-pool",
-            "reach-pg");
+            "rich-pg-pool",
+            "rich-pg");
 
     assertEquals(expected, tweaked);
   }
@@ -189,7 +189,7 @@ class ReachPgConfigTest {
   void withPoolNamePreservesEveryOtherField() {
     var tweaked = defaults().withPoolName("music-catalogue-pool");
     var expected =
-        new ReachPgConfig(
+        new RichPgConfig(
             "jdbc:postgresql://localhost/test",
             "user",
             "pw",
@@ -199,10 +199,10 @@ class ReachPgConfigTest {
             3,
             Duration.ofSeconds(1),
             tweaked.openTelemetry(),
-            "io.codemine.java.reach-pg",
+            "io.codemine.java.rich-pg",
             "1.0.0",
             "music-catalogue-pool",
-            "reach-pg");
+            "rich-pg");
 
     assertEquals(expected, tweaked);
   }
@@ -211,7 +211,7 @@ class ReachPgConfigTest {
   void withArtifactNamePreservesEveryOtherField() {
     var tweaked = defaults().withArtifactName("music-catalogue");
     var expected =
-        new ReachPgConfig(
+        new RichPgConfig(
             "jdbc:postgresql://localhost/test",
             "user",
             "pw",
@@ -221,9 +221,9 @@ class ReachPgConfigTest {
             3,
             Duration.ofSeconds(1),
             tweaked.openTelemetry(),
-            "io.codemine.java.reach-pg",
+            "io.codemine.java.rich-pg",
             "1.0.0",
-            "reach-pg-pool",
+            "rich-pg-pool",
             "music-catalogue");
 
     assertEquals(expected, tweaked);

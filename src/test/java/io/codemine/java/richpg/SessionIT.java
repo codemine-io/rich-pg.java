@@ -1,4 +1,4 @@
-package io.codemine.java.reachpg;
+package io.codemine.java.richpg;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -70,7 +70,7 @@ class SessionIT extends AbstractDatabaseIT {
 
   @Test
   void executeEmitsStatementSpanAndDurationMetric() throws SQLException {
-    ReachPgConfig config = config();
+    RichPgConfig config = config();
     try (Session session = new Session(config)) {
       String result = session.execute(new SelectOneStatement());
       assertEquals("one", result);
@@ -96,7 +96,7 @@ class SessionIT extends AbstractDatabaseIT {
   @Test
   void executeTransactionEmitsTransactionSpanWithOutcomeAndNestedStatementSpan()
       throws SQLException {
-    ReachPgConfig config = config();
+    RichPgConfig config = config();
     try (Session session = new Session(config)) {
       String result = session.executeTransaction(ctx -> ctx.execute(new SelectOneStatement()));
       assertEquals("one", result);
@@ -119,7 +119,7 @@ class SessionIT extends AbstractDatabaseIT {
 
   @Test
   void healthCheckReturnsTrueAndEmitsHealthCheckSpan() {
-    ReachPgConfig config = config();
+    RichPgConfig config = config();
     try (Session session = new Session(config)) {
       assertTrue(session.healthCheck());
     }
@@ -134,7 +134,7 @@ class SessionIT extends AbstractDatabaseIT {
 
   @Test
   void closeEmitsSessionCloseSpanAndUnregistersPoolGauges() {
-    ReachPgConfig config = config();
+    RichPgConfig config = config();
     Session session = new Session(config);
 
     assertFalse(poolGaugeMetrics().isEmpty(), "pool gauges should be registered");
@@ -150,8 +150,8 @@ class SessionIT extends AbstractDatabaseIT {
     assertTrue(poolGaugeMetrics().isEmpty(), "pool gauges should be unregistered after close");
   }
 
-  private ReachPgConfig config() {
-    return ReachPgConfig.defaults(PG.getJdbcUrl(), PG.getUsername(), PG.getPassword())
+  private RichPgConfig config() {
+    return RichPgConfig.defaults(PG.getJdbcUrl(), PG.getUsername(), PG.getPassword())
         .withOpenTelemetry(openTelemetry);
   }
 

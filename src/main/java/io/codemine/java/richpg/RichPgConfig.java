@@ -1,4 +1,4 @@
-package io.codemine.java.reachpg;
+package io.codemine.java.richpg;
 
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
@@ -6,7 +6,7 @@ import java.time.Duration;
 import java.util.Objects;
 
 /**
- * Configuration for a reach-pg session.
+ * Configuration for a rich-pg session.
  *
  * <p>The JDBC URL identifies the database host, port and name; credentials are supplied separately
  * so that they can be rotated, stored in secret managers, or overridden without touching the
@@ -37,7 +37,7 @@ import java.util.Objects;
  * @param artifactName the name of the generated artifact this config belongs to, e.g. {@code
  *     "music-catalogue"}
  */
-public record ReachPgConfig(
+public record RichPgConfig(
     String jdbcUrl,
     String user,
     String password,
@@ -61,7 +61,7 @@ public record ReachPgConfig(
    * @throws NullPointerException if any reference-typed component is null
    * @throws IllegalArgumentException if a numeric or duration component violates its stated bound
    */
-  public ReachPgConfig {
+  public RichPgConfig {
     Objects.requireNonNull(jdbcUrl, "jdbcUrl");
     Objects.requireNonNull(user, "user");
     Objects.requireNonNull(password, "password");
@@ -98,11 +98,11 @@ public record ReachPgConfig(
    *
    * <p>Because this factory has no knowledge of the calling artifact, the instrumentation scope
    * name, scope version, pool name and artifact name are populated with generic, library-level
-   * defaults ({@code "io.codemine.java.reach-pg"}, this module's own version, {@code
-   * "reach-pg-pool"} and {@code "reach-pg"} respectively) so that the type remains usable
-   * standalone, without a generator. Real generated callers are expected to override all four via
-   * {@link #withScopeName}, {@link #withScopeVersion}, {@link #withPoolName} and {@link
-   * #withArtifactName} with values that identify their own artifact.
+   * defaults ({@code "io.codemine.java.rich-pg"}, this module's own version, {@code "rich-pg-pool"}
+   * and {@code "rich-pg"} respectively) so that the type remains usable standalone, without a
+   * generator. Real generated callers are expected to override all four via {@link #withScopeName},
+   * {@link #withScopeVersion}, {@link #withPoolName} and {@link #withArtifactName} with values that
+   * identify their own artifact.
    *
    * @param jdbcUrl the JDBC URL of the PostgreSQL database
    * @param user the database user
@@ -110,8 +110,8 @@ public record ReachPgConfig(
    * @return a fully-populated config
    * @throws NullPointerException if any argument is null
    */
-  public static ReachPgConfig defaults(String jdbcUrl, String user, String password) {
-    return new ReachPgConfig(
+  public static RichPgConfig defaults(String jdbcUrl, String user, String password) {
+    return new RichPgConfig(
         jdbcUrl,
         user,
         password,
@@ -121,21 +121,21 @@ public record ReachPgConfig(
         3,
         Duration.ofSeconds(1),
         GlobalOpenTelemetry.get(),
-        "io.codemine.java.reach-pg",
+        "io.codemine.java.rich-pg",
         MODULE_VERSION,
-        "reach-pg-pool",
-        "reach-pg");
+        "rich-pg-pool",
+        "rich-pg");
   }
 
   /**
    * Returns a copy of this config with the given JDBC URL.
    *
    * @param jdbcUrl the JDBC URL to apply
-   * @return a new {@code ReachPgConfig}
+   * @return a new {@code RichPgConfig}
    * @throws NullPointerException if {@code jdbcUrl} is null
    */
-  public ReachPgConfig withJdbcUrl(String jdbcUrl) {
-    return new ReachPgConfig(
+  public RichPgConfig withJdbcUrl(String jdbcUrl) {
+    return new RichPgConfig(
         jdbcUrl,
         user,
         password,
@@ -155,11 +155,11 @@ public record ReachPgConfig(
    * Returns a copy of this config with the given database user.
    *
    * @param user the user to apply
-   * @return a new {@code ReachPgConfig}
+   * @return a new {@code RichPgConfig}
    * @throws NullPointerException if {@code user} is null
    */
-  public ReachPgConfig withUser(String user) {
-    return new ReachPgConfig(
+  public RichPgConfig withUser(String user) {
+    return new RichPgConfig(
         jdbcUrl,
         user,
         password,
@@ -179,11 +179,11 @@ public record ReachPgConfig(
    * Returns a copy of this config with the given database password.
    *
    * @param password the password to apply
-   * @return a new {@code ReachPgConfig}
+   * @return a new {@code RichPgConfig}
    * @throws NullPointerException if {@code password} is null
    */
-  public ReachPgConfig withPassword(String password) {
-    return new ReachPgConfig(
+  public RichPgConfig withPassword(String password) {
+    return new RichPgConfig(
         jdbcUrl,
         user,
         password,
@@ -203,11 +203,11 @@ public record ReachPgConfig(
    * Returns a copy of this config with the given maximum pool size.
    *
    * @param maximumPoolSize the maximum pool size to apply; at least 1
-   * @return a new {@code ReachPgConfig}
+   * @return a new {@code RichPgConfig}
    * @throws IllegalArgumentException if {@code maximumPoolSize} is less than 1
    */
-  public ReachPgConfig withMaximumPoolSize(int maximumPoolSize) {
-    return new ReachPgConfig(
+  public RichPgConfig withMaximumPoolSize(int maximumPoolSize) {
+    return new RichPgConfig(
         jdbcUrl,
         user,
         password,
@@ -227,12 +227,12 @@ public record ReachPgConfig(
    * Returns a copy of this config with the given connection timeout.
    *
    * @param connectionTimeout the connection timeout to apply; must not be negative
-   * @return a new {@code ReachPgConfig}
+   * @return a new {@code RichPgConfig}
    * @throws NullPointerException if {@code connectionTimeout} is null
    * @throws IllegalArgumentException if {@code connectionTimeout} is negative
    */
-  public ReachPgConfig withConnectionTimeout(Duration connectionTimeout) {
-    return new ReachPgConfig(
+  public RichPgConfig withConnectionTimeout(Duration connectionTimeout) {
+    return new RichPgConfig(
         jdbcUrl,
         user,
         password,
@@ -253,12 +253,12 @@ public record ReachPgConfig(
    *
    * @param statementTimeout the statement timeout to apply; zero means no timeout; must not be
    *     negative
-   * @return a new {@code ReachPgConfig}
+   * @return a new {@code RichPgConfig}
    * @throws NullPointerException if {@code statementTimeout} is null
    * @throws IllegalArgumentException if {@code statementTimeout} is negative
    */
-  public ReachPgConfig withStatementTimeout(Duration statementTimeout) {
-    return new ReachPgConfig(
+  public RichPgConfig withStatementTimeout(Duration statementTimeout) {
+    return new RichPgConfig(
         jdbcUrl,
         user,
         password,
@@ -278,11 +278,11 @@ public record ReachPgConfig(
    * Returns a copy of this config with the given transaction retry attempts.
    *
    * @param transactionRetryAttempts the number of retry attempts to apply; at least 1
-   * @return a new {@code ReachPgConfig}
+   * @return a new {@code RichPgConfig}
    * @throws IllegalArgumentException if {@code transactionRetryAttempts} is less than 1
    */
-  public ReachPgConfig withTransactionRetryAttempts(int transactionRetryAttempts) {
-    return new ReachPgConfig(
+  public RichPgConfig withTransactionRetryAttempts(int transactionRetryAttempts) {
+    return new RichPgConfig(
         jdbcUrl,
         user,
         password,
@@ -303,12 +303,12 @@ public record ReachPgConfig(
    *
    * @param slowQueryLogThreshold the threshold to apply; zero logs every query; must not be
    *     negative
-   * @return a new {@code ReachPgConfig}
+   * @return a new {@code RichPgConfig}
    * @throws NullPointerException if {@code slowQueryLogThreshold} is null
    * @throws IllegalArgumentException if {@code slowQueryLogThreshold} is negative
    */
-  public ReachPgConfig withSlowQueryLogThreshold(Duration slowQueryLogThreshold) {
-    return new ReachPgConfig(
+  public RichPgConfig withSlowQueryLogThreshold(Duration slowQueryLogThreshold) {
+    return new RichPgConfig(
         jdbcUrl,
         user,
         password,
@@ -328,11 +328,11 @@ public record ReachPgConfig(
    * Returns a copy of this config with the given OpenTelemetry instance.
    *
    * @param openTelemetry the OpenTelemetry instance to apply
-   * @return a new {@code ReachPgConfig}
+   * @return a new {@code RichPgConfig}
    * @throws NullPointerException if {@code openTelemetry} is null
    */
-  public ReachPgConfig withOpenTelemetry(OpenTelemetry openTelemetry) {
-    return new ReachPgConfig(
+  public RichPgConfig withOpenTelemetry(OpenTelemetry openTelemetry) {
+    return new RichPgConfig(
         jdbcUrl,
         user,
         password,
@@ -352,11 +352,11 @@ public record ReachPgConfig(
    * Returns a copy of this config with the given instrumentation-scope name.
    *
    * @param scopeName the scope name to apply
-   * @return a new {@code ReachPgConfig}
+   * @return a new {@code RichPgConfig}
    * @throws NullPointerException if {@code scopeName} is null
    */
-  public ReachPgConfig withScopeName(String scopeName) {
-    return new ReachPgConfig(
+  public RichPgConfig withScopeName(String scopeName) {
+    return new RichPgConfig(
         jdbcUrl,
         user,
         password,
@@ -376,11 +376,11 @@ public record ReachPgConfig(
    * Returns a copy of this config with the given instrumentation-scope version.
    *
    * @param scopeVersion the scope version to apply
-   * @return a new {@code ReachPgConfig}
+   * @return a new {@code RichPgConfig}
    * @throws NullPointerException if {@code scopeVersion} is null
    */
-  public ReachPgConfig withScopeVersion(String scopeVersion) {
-    return new ReachPgConfig(
+  public RichPgConfig withScopeVersion(String scopeVersion) {
+    return new RichPgConfig(
         jdbcUrl,
         user,
         password,
@@ -400,11 +400,11 @@ public record ReachPgConfig(
    * Returns a copy of this config with the given pool name.
    *
    * @param poolName the pool name to apply
-   * @return a new {@code ReachPgConfig}
+   * @return a new {@code RichPgConfig}
    * @throws NullPointerException if {@code poolName} is null
    */
-  public ReachPgConfig withPoolName(String poolName) {
-    return new ReachPgConfig(
+  public RichPgConfig withPoolName(String poolName) {
+    return new RichPgConfig(
         jdbcUrl,
         user,
         password,
@@ -424,11 +424,11 @@ public record ReachPgConfig(
    * Returns a copy of this config with the given artifact name.
    *
    * @param artifactName the artifact name to apply
-   * @return a new {@code ReachPgConfig}
+   * @return a new {@code RichPgConfig}
    * @throws NullPointerException if {@code artifactName} is null
    */
-  public ReachPgConfig withArtifactName(String artifactName) {
-    return new ReachPgConfig(
+  public RichPgConfig withArtifactName(String artifactName) {
+    return new RichPgConfig(
         jdbcUrl,
         user,
         password,
@@ -447,7 +447,7 @@ public record ReachPgConfig(
   /** Redacts {@link #password()} so it can't leak into logs or exception messages. */
   @Override
   public String toString() {
-    return "ReachPgConfig["
+    return "RichPgConfig["
         + "jdbcUrl="
         + jdbcUrl
         + ", user="

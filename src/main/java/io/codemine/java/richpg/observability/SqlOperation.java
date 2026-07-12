@@ -1,4 +1,4 @@
-package io.codemine.java.reachpg.observability;
+package io.codemine.java.richpg.observability;
 
 import java.sql.SQLException;
 

@@ -1,9 +1,9 @@
-package io.codemine.java.reachpg.observability;
+package io.codemine.java.richpg.observability;
 
 import com.zaxxer.hikari.HikariPoolMXBean;
 import io.codemine.java.postgresql.jdbc.Statement;
 import io.codemine.java.postgresql.jdbc.TransactionSettings;
-import io.codemine.java.reachpg.ReachPgConfig;
+import io.codemine.java.richpg.RichPgConfig;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.DoubleHistogram;
@@ -27,7 +27,7 @@ import org.slf4j.LoggerFactory;
  * child factories, the {@code pgenie.pool.connections.*} gauges, the health-check and {@code
  * session.close} spans, and the session-opened / closing-session / session-closed log lines.
  *
- * <p>Constructed exclusively via {@link #fromConfig(ReachPgConfig, HikariPoolMXBean)}. Not {@link
+ * <p>Constructed exclusively via {@link #fromConfig(RichPgConfig, HikariPoolMXBean)}. Not {@link
  * AutoCloseable} — {@link #startClose()} returns a two-phase {@link CloseHandle} instead, because
  * close has a middle (draining the pool) that only {@code Session} can perform.
  */
@@ -79,12 +79,12 @@ public final class SessionObservability {
    * registers the four {@code pgenie.pool.connections.*} gauges, and logs the (URL-redacted)
    * "Session opened" line.
    *
-   * @param config the reach-pg configuration
+   * @param config the rich-pg configuration
    * @param poolMxBean the HikariCP pool MX bean to poll for the pool gauges
    * @return a new session observability
    * @throws NullPointerException if either argument is null
    */
-  public static SessionObservability fromConfig(ReachPgConfig config, HikariPoolMXBean poolMxBean) {
+  public static SessionObservability fromConfig(RichPgConfig config, HikariPoolMXBean poolMxBean) {
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(poolMxBean, "poolMxBean");
 

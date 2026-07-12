@@ -1,4 +1,4 @@
-package io.codemine.java.reachpg;
+package io.codemine.java.richpg;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -11,8 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.codemine.java.postgresql.jdbc.Statement;
 import io.codemine.java.postgresql.jdbc.Transaction;
 import io.codemine.java.postgresql.jdbc.TransactionSettings;
-import io.codemine.java.reachpg.observability.StatementObservability;
-import io.codemine.java.reachpg.observability.TransactionObservability;
+import io.codemine.java.richpg.observability.StatementObservability;
+import io.codemine.java.richpg.observability.TransactionObservability;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;

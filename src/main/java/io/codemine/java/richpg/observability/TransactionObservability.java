@@ -1,4 +1,4 @@
-package io.codemine.java.reachpg.observability;
+package io.codemine.java.richpg.observability;
 
 import io.codemine.java.postgresql.jdbc.Statement;
 import io.codemine.java.postgresql.jdbc.StatementBatch;
@@ -23,7 +23,7 @@ import java.util.Objects;
 import org.slf4j.Logger;
 
 /**
- * Owns all transaction-related OpenTelemetry instrumentation for {@code reach-pg}.
+ * Owns all transaction-related OpenTelemetry instrumentation for {@code rich-pg}.
  *
  * <p>The class is responsible for:
  *

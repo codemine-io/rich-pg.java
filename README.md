@@ -1,24 +1,26 @@
-# reach-pg
+# rich-pg
 
-[![docs](https://img.shields.io/badge/docs-all-white)](https://codemine.io/reach-pg.java/)
-[![maven](https://img.shields.io/badge/maven-latest-green)](https://codemine.io/reach-pg.java/latest/)
-[![javadoc](https://img.shields.io/badge/javadoc-latest-green)](https://codemine.io/reach-pg.java/latest/apidocs/)
-[![javadoc](https://javadoc.io/badge2/io.codemine.java/reach-pg/javadoc.svg)](https://javadoc.io/doc/io.codemine.java/reach-pg)
-[![Maven Central Version](https://img.shields.io/maven-central/v/io.codemine.java/reach-pg)](https://central.sonatype.com/artifact/io.codemine.java/reach-pg)
+[![docs](https://img.shields.io/badge/docs-all-white)](https://codemine.io/rich-pg.java/)
+[![maven](https://img.shields.io/badge/maven-latest-green)](https://codemine.io/rich-pg.java/latest/)
+[![javadoc](https://img.shields.io/badge/javadoc-latest-green)](https://codemine.io/rich-pg.java/latest/apidocs/)
+[![javadoc](https://javadoc.io/badge2/io.codemine.java/rich-pg/javadoc.svg)](https://javadoc.io/doc/io.codemine.java/rich-pg)
+[![Maven Central Version](https://img.shields.io/maven-central/v/io.codemine.java/rich-pg)](https://central.sonatype.com/artifact/io.codemine.java/rich-pg)
 
-Reach Postgres with a rich Java client - connection pooling, resilient transactions, tracing, metrics and healthchecks under a simple interface for executing statements and transactions.
+Reach Postgres with a rich Java client.
+
+Connection pooling, resilient transactions, tracing, metrics and healthchecks - all under a simple interface for executing statements and transactions.
 
 ## Motivation
 
 Every generated or hand-written PostgreSQL client ends up rebuilding the same
 non-domain plumbing: a connection pool, retry-on-serialization-failure
 transactions, slow-query logging, and OpenTelemetry traces/metrics for each
-statement and transaction. `reach-pg` is that plumbing, built once, so
+statement and transaction. `rich-pg` is that plumbing, built once, so
 callers can focus on their own statements and domain types.
 
 ## Features
 
-- **Connection pooling** via HikariCP, configured from a single `ReachPgConfig` record
+- **Connection pooling** via HikariCP, configured from a single `RichPgConfig` record
 - **Resilient transactions** - automatic retry on serialization failures and
   deadlocks (SQLSTATE `40001`, `40P01`, `23505`), with configurable isolation
   level, read-only flag, and max attempts
@@ -38,12 +40,12 @@ callers can focus on their own statements and domain types.
 ## Installation
 
 The package is published to Maven Central under
-[`io.codemine.java:reach-pg`](https://central.sonatype.com/artifact/io.codemine.java/reach-pg).
+[`io.codemine.java:rich-pg`](https://central.sonatype.com/artifact/io.codemine.java/rich-pg).
 
 ```xml
 <dependency>
     <groupId>io.codemine.java</groupId>
-    <artifactId>reach-pg</artifactId>
+    <artifactId>rich-pg</artifactId>
     <version>1.0.0</version>
 </dependency>
 ```
@@ -55,10 +57,10 @@ This module depends on [`io.codemine.java.postgresql:jdbc`](https://github.com/c
 ### Opening a session
 
 ```java
-import io.codemine.java.reachpg.ReachPgConfig;
-import io.codemine.java.reachpg.Session;
+import io.codemine.java.richpg.RichPgConfig;
+import io.codemine.java.richpg.Session;
 
-ReachPgConfig config = ReachPgConfig
+RichPgConfig config = RichPgConfig
         .defaults("jdbc:postgresql://localhost:5432/mydb", "postgres", "postgres")
         .withMaximumPoolSize(20)
         .withPoolName("my-service-pool")
@@ -69,7 +71,7 @@ try (Session session = new Session(config)) {
 }
 ```
 
-`ReachPgConfig.defaults(jdbcUrl, user, password)` returns a config with a
+`RichPgConfig.defaults(jdbcUrl, user, password)` returns a config with a
 pool size of 10, a 30-second connection/statement timeout, 3 transaction
 retry attempts, a 1-second slow-query-log threshold, and the global
 `OpenTelemetry` instance - override any of it with the `with*` methods

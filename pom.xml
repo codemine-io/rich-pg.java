@@ -5,13 +5,13 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>io.codemine.java</groupId>
-    <artifactId>reach-pg</artifactId>
+    <artifactId>rich-pg</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>ReachPG</name>
+    <name>RichPG</name>
     <description>Shared session management, connection pooling, transaction retry, statement execution and observability library for PostgreSQL JDBC clients.</description>
-    <url>https://github.com/codemine-io/reach-pg.java</url>
+    <url>https://github.com/codemine-io/rich-pg.java</url>
 
     <licenses>
         <license>
@@ -29,9 +29,9 @@
     </developers>
 
     <scm>
-        <connection>scm:git:git://github.com/codemine-io/reach-pg.java.git</connection>
-        <developerConnection>scm:git:ssh://github.com/codemine-io/reach-pg.java.git</developerConnection>
-        <url>https://github.com/codemine-io/reach-pg.java/tree/master</url>
+        <connection>scm:git:git://github.com/codemine-io/rich-pg.java.git</connection>
+        <developerConnection>scm:git:ssh://github.com/codemine-io/rich-pg.java.git</developerConnection>
+        <url>https://github.com/codemine-io/rich-pg.java/tree/master</url>
     </scm>
 
     <distributionManagement>

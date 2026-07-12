@@ -1,4 +1,4 @@
-package io.codemine.java.reachpg;
+package io.codemine.java.richpg;
 
 import java.sql.Connection;
 import java.sql.DriverManager;

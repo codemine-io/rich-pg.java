@@ -1,18 +1,18 @@
-package io.codemine.java.reachpg.observability;
+package io.codemine.java.richpg.observability;
 
-import static io.codemine.java.reachpg.observability.TransactionObservability.ATTEMPT_COUNT;
-import static io.codemine.java.reachpg.observability.TransactionObservability.OUTCOME;
-import static io.codemine.java.reachpg.observability.TransactionObservability.OUTCOME_COMMITTED;
-import static io.codemine.java.reachpg.observability.TransactionObservability.OUTCOME_NON_RETRYABLE_FAILURE;
-import static io.codemine.java.reachpg.observability.TransactionObservability.OUTCOME_RETRIES_EXHAUSTED;
-import static io.codemine.java.reachpg.observability.TransactionObservability.SPAN_NAME;
+import static io.codemine.java.richpg.observability.TransactionObservability.ATTEMPT_COUNT;
+import static io.codemine.java.richpg.observability.TransactionObservability.OUTCOME;
+import static io.codemine.java.richpg.observability.TransactionObservability.OUTCOME_COMMITTED;
+import static io.codemine.java.richpg.observability.TransactionObservability.OUTCOME_NON_RETRYABLE_FAILURE;
+import static io.codemine.java.richpg.observability.TransactionObservability.OUTCOME_RETRIES_EXHAUSTED;
+import static io.codemine.java.richpg.observability.TransactionObservability.SPAN_NAME;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.codemine.java.postgresql.jdbc.TransactionSettings;
-import io.codemine.java.reachpg.CollectingLogger;
+import io.codemine.java.richpg.CollectingLogger;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.metrics.SdkMeterProvider;

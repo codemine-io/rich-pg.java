@@ -1,12 +1,12 @@
-package io.codemine.java.reachpg.observability;
+package io.codemine.java.richpg.observability;
 
-import static io.codemine.java.reachpg.observability.StatementObservability.BATCH_SIZE_KEY;
-import static io.codemine.java.reachpg.observability.StatementObservability.DB_COLLECTION_NAME_KEY;
-import static io.codemine.java.reachpg.observability.StatementObservability.DB_OPERATION_NAME_KEY;
-import static io.codemine.java.reachpg.observability.StatementObservability.DB_QUERY_TEXT_KEY;
-import static io.codemine.java.reachpg.observability.StatementObservability.DB_SYSTEM_NAME_KEY;
-import static io.codemine.java.reachpg.observability.StatementObservability.DB_USER_KEY;
-import static io.codemine.java.reachpg.observability.StatementObservability.STATEMENT_NAME_KEY;
+import static io.codemine.java.richpg.observability.StatementObservability.BATCH_SIZE_KEY;
+import static io.codemine.java.richpg.observability.StatementObservability.DB_COLLECTION_NAME_KEY;
+import static io.codemine.java.richpg.observability.StatementObservability.DB_OPERATION_NAME_KEY;
+import static io.codemine.java.richpg.observability.StatementObservability.DB_QUERY_TEXT_KEY;
+import static io.codemine.java.richpg.observability.StatementObservability.DB_SYSTEM_NAME_KEY;
+import static io.codemine.java.richpg.observability.StatementObservability.DB_USER_KEY;
+import static io.codemine.java.richpg.observability.StatementObservability.STATEMENT_NAME_KEY;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.codemine.java.postgresql.jdbc.Statement;
-import io.codemine.java.reachpg.CollectingLogger;
+import io.codemine.java.richpg.CollectingLogger;
 import io.opentelemetry.api.metrics.DoubleHistogram;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;

@@ -1,4 +1,4 @@
-package io.codemine.java.reachpg;
+package io.codemine.java.richpg;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -7,7 +7,7 @@ import io.codemine.java.postgresql.jdbc.IsolationLevel;
 import io.codemine.java.postgresql.jdbc.Statement;
 import io.codemine.java.postgresql.jdbc.Transaction;
 import io.codemine.java.postgresql.jdbc.TransactionSettings;
-import io.codemine.java.reachpg.observability.SessionObservability;
+import io.codemine.java.richpg.observability.SessionObservability;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.StatusCode;
 import java.sql.Connection;
@@ -22,9 +22,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Shared, production-grade database session for pgenie-generated reach-pg clients.
+ * Shared, production-grade database session for pgenie-generated rich-pg clients.
  *
- * <p>The session owns a private HikariCP connection pool built from {@link ReachPgConfig}. It
+ * <p>The session owns a private HikariCP connection pool built from {@link RichPgConfig}. It
  * exposes generic {@link #execute(Statement)} and {@link #executeTransaction(Transaction)} methods,
  * OpenTelemetry traces and metrics, SLF4J logging, a health check, and graceful shutdown.
  *
@@ -34,7 +34,7 @@ public class Session implements AutoCloseable {
 
   private static final Logger logger = LoggerFactory.getLogger(Session.class);
 
-  private final ReachPgConfig config;
+  private final RichPgConfig config;
   private final HikariDataSource dataSource;
   private final SessionObservability observability;
 
@@ -46,16 +46,16 @@ public class Session implements AutoCloseable {
    * <p>The session will own a private HikariCP pool that is torn down when {@link #close()} is
    * called.
    *
-   * @param config the reach-pg configuration
+   * @param config the rich-pg configuration
    * @throws NullPointerException if {@code config} is null
    */
-  public Session(ReachPgConfig config) {
+  public Session(RichPgConfig config) {
     this.config = Objects.requireNonNull(config, "config");
     this.dataSource = createHikariDataSource(config);
     this.observability = SessionObservability.fromConfig(config, dataSource.getHikariPoolMXBean());
   }
 
-  private static HikariDataSource createHikariDataSource(ReachPgConfig config) {
+  private static HikariDataSource createHikariDataSource(RichPgConfig config) {
     HikariConfig hc = new HikariConfig();
     hc.setJdbcUrl(config.jdbcUrl());
     hc.setUsername(config.user());
@@ -113,7 +113,7 @@ public class Session implements AutoCloseable {
    *
    * <p>The default isolation level is {@link IsolationLevel#SERIALIZABLE}, the transaction is
    * read-write, and the maximum number of attempts is taken from {@link
-   * ReachPgConfig#transactionRetryAttempts()}. The transaction span is parented to the current
+   * RichPgConfig#transactionRetryAttempts()}. The transaction span is parented to the current
    * OpenTelemetry span, if any.
    *
    * @param transaction the transaction to execute
