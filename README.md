@@ -6,9 +6,7 @@
 [![javadoc](https://javadoc.io/badge2/io.codemine.java/reach-pg/javadoc.svg)](https://javadoc.io/doc/io.codemine.java/reach-pg)
 [![Maven Central Version](https://img.shields.io/maven-central/v/io.codemine.java/reach-pg)](https://central.sonatype.com/artifact/io.codemine.java/reach-pg)
 
-Reach Postgres with a rich Java client — session management, connection pooling, resilient transactions, statement execution, and observability, in one library.
-
-Completely encapsulates the Postgres JDBC driver and provides a simple, uniform interface for executing queries, updates and transactions.
+Reach Postgres with a rich Java client - connection pooling, resilient transactions, tracing, metrics and healthchecks under a simple interface for executing statements and transactions.
 
 ## Motivation
 
@@ -21,18 +19,18 @@ callers can focus on their own statements and domain types.
 ## Features
 
 - **Connection pooling** via HikariCP, configured from a single `ReachPgConfig` record
-- **Resilient transactions** — automatic retry on serialization failures and
+- **Resilient transactions** - automatic retry on serialization failures and
   deadlocks (SQLSTATE `40001`, `40P01`, `23505`), with configurable isolation
   level, read-only flag, and max attempts
 - **Statement execution** built on `io.codemine.java.postgresql:jdbc`'s
   `Statement<R>` abstraction
-- **OpenTelemetry tracing** — a `CLIENT` span per statement/batch, an
+- **OpenTelemetry tracing** - a `CLIENT` span per statement/batch, an
   `INTERNAL` span per transaction, a `session.close` span, and a
   `healthCheck` span
-- **OpenTelemetry metrics** — `db.client.operation.duration` histogram,
+- **OpenTelemetry metrics** - `db.client.operation.duration` histogram,
   `pgenie.transaction.retries` counter, and `pgenie.pool.connections.*`
   gauges (active/idle/pending/total)
-- **SLF4J logging** — session open/close lifecycle, slow-query warnings, and
+- **SLF4J logging** - session open/close lifecycle, slow-query warnings, and
   transaction-exhausted-retries warnings
 - **Health checks** and **graceful, idempotent shutdown** with a bounded
   connection-drain deadline
@@ -74,7 +72,7 @@ try (Session session = new Session(config)) {
 `ReachPgConfig.defaults(jdbcUrl, user, password)` returns a config with a
 pool size of 10, a 30-second connection/statement timeout, 3 transaction
 retry attempts, a 1-second slow-query-log threshold, and the global
-`OpenTelemetry` instance — override any of it with the `with*` methods
+`OpenTelemetry` instance - override any of it with the `with*` methods
 shown above.
 
 ### Executing a statement
@@ -114,7 +112,7 @@ session.close(); // idempotent; drains active connections up to a 10s deadline
 
 ## Observability
 
-Every span/metric/log site below is stable, locked API surface — not an
+Every span/metric/log site below is stable, locked API surface - not an
 implementation detail:
 
 | Kind | Name | Notes |
@@ -142,4 +140,4 @@ Runs unit tests (Surefire) and Testcontainers-backed integration tests
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT - see [`LICENSE`](LICENSE).
