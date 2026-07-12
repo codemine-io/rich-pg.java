@@ -1,0 +1,123 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semver version to publish (e.g., 1.2.3)
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: Semver version to publish (e.g., 1.2.3)
+        required: true
+        type: string
+    secrets:
+      MAVEN_CENTRAL_USERNAME:
+        required: true
+      MAVEN_CENTRAL_PASSWORD:
+        required: true
+      MAVEN_GPG_PRIVATE_KEY:
+        required: true
+      MAVEN_GPG_PASSPHRASE:
+        required: true
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate SemVer version format
+        run: |
+          if ! echo "${{ inputs.version }}" | grep -qE '^[0-9]+(\.[0-9]+)+'
+          then
+            echo "Error: '${{ inputs.version }}' is not a valid SemVer version (expected e.g. 1.2.3)"
+            exit 1
+          fi
+
+  release:
+    needs: validate-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: "21"
+          distribution: temurin
+          cache: maven
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_PASSWORD
+
+      - name: Set version
+        run: mvn versions:set -DnewVersion=${{ inputs.version }} -DgenerateBackupPoms=false
+
+      - name: Update changelog for release
+        run: |
+          first_non_empty_line=$(grep -m1 -E '\S' CHANGELOG.md || true)
+          if [ "$first_non_empty_line" != "# Upcoming" ] && [ "$first_non_empty_line" != "Upcoming" ]; then
+            echo "Error: CHANGELOG.md must start with an Upcoming section"
+            exit 1
+          fi
+
+          perl -i -0pe 's/\A(\s*(?:#\s*)?)Upcoming\b/$1v${{ inputs.version }}/' CHANGELOG.md
+
+      - name: Check Maven Central publication status
+        id: publication-check
+        uses: ./.github/actions/check-maven-central-publication
+        with:
+          version: ${{ inputs.version }}
+
+      - name: Build and verify
+        run: mvn --batch-mode verify
+
+      - name: Import GPG key
+        run: echo "${{ secrets.MAVEN_GPG_PRIVATE_KEY }}" | gpg --batch --import
+
+      - name: Publish to Maven Central
+        if: steps.publication-check.outputs.published != 'true'
+        run: mvn --batch-mode deploy -P release -Dmaven.main.skip=true -Dmaven.test.skip=true -Dverify.skip=true
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+
+      - name: Commit the version update
+        id: commit
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: Set package version to ${{ inputs.version }}
+          file_pattern: pom.xml CHANGELOG.md
+
+      - name: Determine documentation URL
+        id: docs-url
+        run: |
+          PAGES_URL="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
+          echo "url=${PAGES_URL}/v${{ inputs.version }}/" >> "$GITHUB_OUTPUT"
+
+      - name: Determine target commit
+        id: target-commit
+        run: |
+          if [ -n "${{ steps.commit.outputs.commit_hash }}" ]; then
+            echo "sha=${{ steps.commit.outputs.commit_hash }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub release
+        run: |
+          gh release create "v${{ inputs.version }}" \
+            --title "v${{ inputs.version }}" \
+            --notes "📖 [Documentation](${{ steps.docs-url.outputs.url }})" \
+            --target ${{ steps.target-commit.outputs.sha }}
+        env:
+          GH_TOKEN: ${{ github.token }}
