@@ -1,6 +1,5 @@
 package io.codemine.java.richpg;
 
-import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import io.codemine.java.postgresql.jdbc.IsolationLevel;
@@ -51,23 +50,8 @@ public class Session implements AutoCloseable {
    */
   public Session(RichPgConfig config) {
     this.config = Objects.requireNonNull(config, "config");
-    this.dataSource = createHikariDataSource(config);
+    this.dataSource = config.toHikariDataSource();
     this.observability = SessionObservability.fromConfig(config, dataSource.getHikariPoolMXBean());
-  }
-
-  private static HikariDataSource createHikariDataSource(RichPgConfig config) {
-    HikariConfig hc = new HikariConfig();
-    hc.setJdbcUrl(config.jdbcUrl());
-    hc.setUsername(config.user());
-    hc.setPassword(config.password());
-    hc.setMaximumPoolSize(config.maximumPoolSize());
-    hc.setConnectionTimeout(config.connectionTimeout().toMillis());
-    hc.setPoolName(config.poolName());
-    if (config.statementTimeout().toMillis() > 0) {
-      hc.setConnectionInitSql(
-          "SET statement_timeout = '" + config.statementTimeout().toMillis() + "ms'");
-    }
-    return new HikariDataSource(hc);
   }
 
   /**

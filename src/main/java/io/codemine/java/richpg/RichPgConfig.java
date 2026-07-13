@@ -1,5 +1,7 @@
 package io.codemine.java.richpg;
 
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
 import java.time.Duration;
@@ -474,5 +476,19 @@ public record RichPgConfig(
         + ", artifactName="
         + artifactName
         + ']';
+  }
+
+  public HikariDataSource toHikariDataSource() {
+    HikariConfig hc = new HikariConfig();
+    hc.setJdbcUrl(jdbcUrl);
+    hc.setUsername(user);
+    hc.setPassword(password);
+    hc.setMaximumPoolSize(maximumPoolSize);
+    hc.setConnectionTimeout(connectionTimeout.toMillis());
+    hc.setPoolName(poolName);
+    if (statementTimeout.toMillis() > 0) {
+      hc.setConnectionInitSql("SET statement_timeout = '" + statementTimeout.toMillis() + "ms'");
+    }
+    return new HikariDataSource(hc);
   }
 }
