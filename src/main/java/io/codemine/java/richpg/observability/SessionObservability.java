@@ -51,6 +51,7 @@ public final class SessionObservability {
   private final String dbUser;
   private final Duration slowQueryLogThreshold;
   private final TransactionObservability transactionObservability;
+  private final StatementRetryObservability statementRetryObservability;
   private final List<ObservableLongGauge> gauges;
   private final AtomicBoolean gaugesClosed = new AtomicBoolean(false);
 
@@ -61,6 +62,7 @@ public final class SessionObservability {
       String dbUser,
       Duration slowQueryLogThreshold,
       TransactionObservability transactionObservability,
+      StatementRetryObservability statementRetryObservability,
       List<ObservableLongGauge> gauges) {
     this.tracer = tracer;
     this.durationHistogram = durationHistogram;
@@ -68,6 +70,7 @@ public final class SessionObservability {
     this.dbUser = dbUser;
     this.slowQueryLogThreshold = slowQueryLogThreshold;
     this.transactionObservability = transactionObservability;
+    this.statementRetryObservability = statementRetryObservability;
     this.gauges = gauges;
   }
 
@@ -102,6 +105,15 @@ public final class SessionObservability {
             config.user(),
             config.slowQueryLogThreshold());
 
+    StatementRetryObservability statementRetryObservability =
+        new StatementRetryObservability(
+            tracer,
+            meter,
+            durationHistogram,
+            logger,
+            config.user(),
+            config.slowQueryLogThreshold());
+
     List<ObservableLongGauge> gauges = registerPoolGauges(meter, poolMxBean, config.poolName());
 
     logger.info(
@@ -114,6 +126,7 @@ public final class SessionObservability {
         config.user(),
         config.slowQueryLogThreshold(),
         transactionObservability,
+        statementRetryObservability,
         gauges);
   }
 
@@ -206,6 +219,15 @@ public final class SessionObservability {
    */
   public TransactionObservability forTransaction(TransactionSettings settings) {
     return forTransaction(settings, Span.current());
+  }
+
+  /**
+   * Returns the session's {@link StatementRetryObservability} child.
+   *
+   * @return the session's statement-retry observability
+   */
+  public StatementRetryObservability forStatementRetry() {
+    return statementRetryObservability;
   }
 
   /**

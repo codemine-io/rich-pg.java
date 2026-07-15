@@ -43,6 +43,10 @@ class SessionIT extends AbstractDatabaseIT {
       AttributeKey.longKey("pgenie.transaction.attempt_count");
   private static final AttributeKey<String> OUTCOME_KEY =
       AttributeKey.stringKey("pgenie.transaction.outcome");
+  private static final AttributeKey<Long> STATEMENT_ATTEMPT_COUNT_KEY =
+      AttributeKey.longKey("pgenie.statement.attempt_count");
+  private static final AttributeKey<String> STATEMENT_OUTCOME_KEY =
+      AttributeKey.stringKey("pgenie.statement.outcome");
   private static final AttributeKey<Long> CLOSE_CONNECTIONS_REMAINING_KEY =
       AttributeKey.longKey("pgenie.session.close.connections_remaining");
 
@@ -112,6 +116,29 @@ class SessionIT extends AbstractDatabaseIT {
     assertEquals("committed", transactionSpan.getAttributes().get(OUTCOME_KEY));
 
     List<SpanData> childSpans = childSpansOf(transactionSpan);
+    assertEquals(1, childSpans.size(), "expected one nested statement span");
+    assertEquals("SelectOneStatement", childSpans.get(0).getName());
+    assertEquals(SpanKind.CLIENT, childSpans.get(0).getKind());
+  }
+
+  @Test
+  void executeRetryableEmitsRetrySpanWithNestedStatementSpanOnSuccess() throws SQLException {
+    RichPgConfig config = config();
+    try (Session session = new Session(config)) {
+      String result = session.executeRetryable(new SelectOneStatement());
+      assertEquals("one", result);
+    }
+
+    flush();
+
+    SpanData retrySpan = singleSpanNamed("statement.retry");
+    assertEquals(SpanKind.INTERNAL, retrySpan.getKind());
+    assertEquals(StatusCode.OK, retrySpan.getStatus().getStatusCode());
+    assertEquals("postgresql", retrySpan.getAttributes().get(DB_SYSTEM_NAME_KEY));
+    assertEquals(1L, retrySpan.getAttributes().get(STATEMENT_ATTEMPT_COUNT_KEY));
+    assertEquals("succeeded", retrySpan.getAttributes().get(STATEMENT_OUTCOME_KEY));
+
+    List<SpanData> childSpans = childSpansOf(retrySpan);
     assertEquals(1, childSpans.size(), "expected one nested statement span");
     assertEquals("SelectOneStatement", childSpans.get(0).getName());
     assertEquals(SpanKind.CLIENT, childSpans.get(0).getKind());
