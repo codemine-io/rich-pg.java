@@ -32,10 +32,6 @@ import org.slf4j.LoggerFactory;
  * keys and span/metric names live here. Core execution code (statement executor, transaction
  * executor, {@link Session}) owns retry loops and calls this class's methods to notify telemetry at
  * well-defined moments; this class never drives control flow.
- *
- * <p>Note: {@link #forSession} currently takes {@link RichPgConfig} rather than a dedicated {@code
- * SessionSettings} type; that split is introduced by a later task in the design-revision plan and
- * was out of scope here.
  */
 final class Telemetry {
 
@@ -117,7 +113,7 @@ final class Telemetry {
    * Builds a session's telemetry from its config and pool MX bean, registering the pool gauges and
    * logging the (URL-redacted) "Session opened" line.
    */
-  static Telemetry forSession(RichPgConfig config, HikariPoolMXBean poolMxBean) {
+  static Telemetry forSession(SessionSettings config, HikariPoolMXBean poolMxBean) {
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(poolMxBean, "poolMxBean");
 

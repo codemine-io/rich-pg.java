@@ -9,7 +9,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -19,7 +18,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Shared, production-grade database session for pgenie-generated rich-pg clients.
  *
- * <p>The session owns a private HikariCP connection pool built from {@link RichPgConfig}. It
+ * <p>The session owns a private HikariCP connection pool built from {@link SessionSettings}. It
  * exposes generic {@link #execute(Statement)} and {@link #executeTransaction(Transaction)} methods,
  * OpenTelemetry traces and metrics, SLF4J logging, a health check, and graceful shutdown.
  *
@@ -34,7 +33,7 @@ public class Session implements AutoCloseable {
 
   private static final Logger logger = LoggerFactory.getLogger(Session.class);
 
-  private final RichPgConfig config;
+  private final SessionSettings config;
   private final HikariDataSource dataSource;
   private final Telemetry telemetry;
 
@@ -49,7 +48,7 @@ public class Session implements AutoCloseable {
    * @param config the rich-pg configuration
    * @throws NullPointerException if {@code config} is null
    */
-  public Session(RichPgConfig config) {
+  public Session(SessionSettings config) {
     this.config = Objects.requireNonNull(config, "config");
     this.dataSource = config.toHikariDataSource();
     this.telemetry = Telemetry.forSession(config, dataSource.getHikariPoolMXBean());
@@ -227,7 +226,7 @@ public class Session implements AutoCloseable {
 
     try (Connection connection = dataSource.getConnection();
         PreparedStatement preparedStatement = connection.prepareStatement("select 1")) {
-      preparedStatement.setQueryTimeout(2);
+      preparedStatement.setQueryTimeout((int) config.healthCheckTimeout().toSeconds());
       try (ResultSet resultSet = preparedStatement.executeQuery()) {
         boolean ok = resultSet.next();
         span.setStatus(StatusCode.OK);
@@ -245,9 +244,9 @@ public class Session implements AutoCloseable {
   /**
    * Gracefully close the session.
    *
-   * <p>Waits up to a 10-second deadline for active connections to drain, then tears down the
-   * internal HikariCP pool. Emits a {@code session.close} span recording whether any connections
-   * remained active at the deadline.
+   * <p>Waits up to the configured {@link SessionSettings#closeDrainDeadline()} for active
+   * connections to drain, then tears down the internal HikariCP pool. Emits a {@code session.close}
+   * span recording whether any connections remained active at the deadline.
    */
   @Override
   public void close() {
@@ -258,7 +257,7 @@ public class Session implements AutoCloseable {
     Telemetry.CloseHandle close = telemetry.startClose();
 
     HikariPoolMXBean pool = dataSource.getHikariPoolMXBean();
-    Instant deadline = Instant.now().plus(Duration.ofSeconds(10));
+    Instant deadline = Instant.now().plus(config.closeDrainDeadline());
     while (pool != null && pool.getActiveConnections() > 0 && Instant.now().isBefore(deadline)) {
       try {
         Thread.sleep(50);

@@ -74,7 +74,7 @@ class SessionIT extends AbstractDatabaseIT {
 
   @Test
   void executeEmitsStatementSpanAndDurationMetric() throws SQLException {
-    RichPgConfig config = config();
+    SessionSettings config = config();
     try (Session session = new Session(config)) {
       String result = session.execute(new SelectOneStatement());
       assertEquals("one", result);
@@ -100,7 +100,7 @@ class SessionIT extends AbstractDatabaseIT {
   @Test
   void executeTransactionEmitsTransactionSpanWithOutcomeAndNestedStatementSpan()
       throws SQLException {
-    RichPgConfig config = config();
+    SessionSettings config = config();
     try (Session session = new Session(config)) {
       String result = session.executeTransaction(ctx -> ctx.execute(new SelectOneStatement()));
       assertEquals("one", result);
@@ -123,7 +123,7 @@ class SessionIT extends AbstractDatabaseIT {
 
   @Test
   void executeRetryableEmitsRetrySpanWithNestedStatementSpanOnSuccess() throws SQLException {
-    RichPgConfig config = config();
+    SessionSettings config = config();
     try (Session session = new Session(config)) {
       String result = session.executeRetryable(new SelectOneStatement());
       assertEquals("one", result);
@@ -146,7 +146,7 @@ class SessionIT extends AbstractDatabaseIT {
 
   @Test
   void healthCheckReturnsTrueAndEmitsHealthCheckSpan() {
-    RichPgConfig config = config();
+    SessionSettings config = config();
     try (Session session = new Session(config)) {
       assertTrue(session.healthCheck());
     }
@@ -161,7 +161,7 @@ class SessionIT extends AbstractDatabaseIT {
 
   @Test
   void closeEmitsSessionCloseSpanAndUnregistersPoolGauges() {
-    RichPgConfig config = config();
+    SessionSettings config = config();
     Session session = new Session(config);
 
     assertFalse(poolGaugeMetrics().isEmpty(), "pool gauges should be registered");
@@ -177,8 +177,8 @@ class SessionIT extends AbstractDatabaseIT {
     assertTrue(poolGaugeMetrics().isEmpty(), "pool gauges should be unregistered after close");
   }
 
-  private RichPgConfig config() {
-    return RichPgConfig.defaults(PG.getJdbcUrl(), PG.getUsername(), PG.getPassword())
+  private SessionSettings config() {
+    return SessionSettings.defaults(PG.getJdbcUrl(), PG.getUsername(), PG.getPassword())
         .withOpenTelemetry(openTelemetry);
   }
 

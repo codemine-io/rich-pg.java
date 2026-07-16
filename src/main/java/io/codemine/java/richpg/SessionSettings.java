@@ -26,10 +26,15 @@ import java.util.Objects;
  *     not be negative
  * @param statementTimeout maximum time a single statement is allowed to execute before being
  *     cancelled; zero means no timeout; must not be negative
- * @param transactionRetryAttempts number of times a transaction is retried when a serialization
- *     failure or deadlock is detected; at least 1
+ * @param retryAttempts number of times a statement or transaction is retried when a serialization
+ *     failure, deadlock, or transient connection failure is detected; at least 1; shared by both
+ *     the statement and transaction retry loops
  * @param slowQueryLogThreshold queries running longer than this threshold are logged as slow
  *     queries; zero logs every query; must not be negative
+ * @param healthCheckTimeout maximum time {@link Session#healthCheck()} waits for the database
+ *     round-trip before failing; must not be negative
+ * @param closeDrainDeadline maximum time {@link Session#close()} waits for active connections to
+ *     drain before forcing pool shutdown; must not be negative
  * @param openTelemetry OpenTelemetry instance used for tracing and metrics
  * @param scopeName the OpenTelemetry instrumentation-scope name, e.g. what {@code
  *     openTelemetry.getTracer(scopeName, scopeVersion)} uses
@@ -39,15 +44,17 @@ import java.util.Objects;
  * @param artifactName the name of the generated artifact this config belongs to, e.g. {@code
  *     "music-catalogue"}
  */
-public record RichPgConfig(
+public record SessionSettings(
     String jdbcUrl,
     String user,
     String password,
     int maximumPoolSize,
     Duration connectionTimeout,
     Duration statementTimeout,
-    int transactionRetryAttempts,
+    int retryAttempts,
     Duration slowQueryLogThreshold,
+    Duration healthCheckTimeout,
+    Duration closeDrainDeadline,
     OpenTelemetry openTelemetry,
     String scopeName,
     String scopeVersion,
@@ -57,19 +64,24 @@ public record RichPgConfig(
   /** The version of this module, used as the {@link #defaults} instrumentation-scope version. */
   private static final String MODULE_VERSION = "1.0.0";
 
+  /** Default number of retry attempts shared by the statement and transaction retry loops. */
+  static final int DEFAULT_RETRY_ATTEMPTS = 7;
+
   /**
    * Validates the record's components.
    *
    * @throws NullPointerException if any reference-typed component is null
    * @throws IllegalArgumentException if a numeric or duration component violates its stated bound
    */
-  public RichPgConfig {
+  public SessionSettings {
     Objects.requireNonNull(jdbcUrl, "jdbcUrl");
     Objects.requireNonNull(user, "user");
     Objects.requireNonNull(password, "password");
     Objects.requireNonNull(connectionTimeout, "connectionTimeout");
     Objects.requireNonNull(statementTimeout, "statementTimeout");
     Objects.requireNonNull(slowQueryLogThreshold, "slowQueryLogThreshold");
+    Objects.requireNonNull(healthCheckTimeout, "healthCheckTimeout");
+    Objects.requireNonNull(closeDrainDeadline, "closeDrainDeadline");
     Objects.requireNonNull(openTelemetry, "openTelemetry");
     Objects.requireNonNull(scopeName, "scopeName");
     Objects.requireNonNull(scopeVersion, "scopeVersion");
@@ -84,19 +96,25 @@ public record RichPgConfig(
     if (statementTimeout.isNegative()) {
       throw new IllegalArgumentException("statementTimeout must not be negative");
     }
-    if (transactionRetryAttempts < 1) {
-      throw new IllegalArgumentException("transactionRetryAttempts must be at least 1");
+    if (retryAttempts < 1) {
+      throw new IllegalArgumentException("retryAttempts must be at least 1");
     }
     if (slowQueryLogThreshold.isNegative()) {
       throw new IllegalArgumentException("slowQueryLogThreshold must not be negative");
     }
+    if (healthCheckTimeout.isNegative()) {
+      throw new IllegalArgumentException("healthCheckTimeout must not be negative");
+    }
+    if (closeDrainDeadline.isNegative()) {
+      throw new IllegalArgumentException("closeDrainDeadline must not be negative");
+    }
   }
 
   /**
-   * Creates a config with the given required fields and default values for everything else: a
-   * maximum pool size of 10, a 30-second connection timeout, a 30-second statement timeout, 3
-   * transaction retry attempts, a 1-second slow-query-log threshold, and the global {@link
-   * OpenTelemetry} instance.
+   * Creates settings with the given required fields and default values for everything else: a
+   * maximum pool size of 10, a 30-second connection timeout, a 30-second statement timeout, 7 retry
+   * attempts, a 1-second slow-query-log threshold, a 2-second health-check timeout, a 10-second
+   * close-drain deadline, and the global {@link OpenTelemetry} instance.
    *
    * <p>Because this factory has no knowledge of the calling artifact, the instrumentation scope
    * name, scope version, pool name and artifact name are populated with generic, library-level
@@ -109,19 +127,21 @@ public record RichPgConfig(
    * @param jdbcUrl the JDBC URL of the PostgreSQL database
    * @param user the database user
    * @param password the database password
-   * @return a fully-populated config
+   * @return a fully-populated settings instance
    * @throws NullPointerException if any argument is null
    */
-  public static RichPgConfig defaults(String jdbcUrl, String user, String password) {
-    return new RichPgConfig(
+  public static SessionSettings defaults(String jdbcUrl, String user, String password) {
+    return new SessionSettings(
         jdbcUrl,
         user,
         password,
         10,
         Duration.ofSeconds(30),
         Duration.ofSeconds(30),
-        3,
+        DEFAULT_RETRY_ATTEMPTS,
         Duration.ofSeconds(1),
+        Duration.ofSeconds(2),
+        Duration.ofSeconds(10),
         GlobalOpenTelemetry.get(),
         "io.codemine.java.rich-pg",
         MODULE_VERSION,
@@ -130,22 +150,24 @@ public record RichPgConfig(
   }
 
   /**
-   * Returns a copy of this config with the given JDBC URL.
+   * Returns a copy of this settings instance with the given JDBC URL.
    *
    * @param jdbcUrl the JDBC URL to apply
-   * @return a new {@code RichPgConfig}
+   * @return a new {@code SessionSettings}
    * @throws NullPointerException if {@code jdbcUrl} is null
    */
-  public RichPgConfig withJdbcUrl(String jdbcUrl) {
-    return new RichPgConfig(
+  public SessionSettings withJdbcUrl(String jdbcUrl) {
+    return new SessionSettings(
         jdbcUrl,
         user,
         password,
         maximumPoolSize,
         connectionTimeout,
         statementTimeout,
-        transactionRetryAttempts,
+        retryAttempts,
         slowQueryLogThreshold,
+        healthCheckTimeout,
+        closeDrainDeadline,
         openTelemetry,
         scopeName,
         scopeVersion,
@@ -154,22 +176,24 @@ public record RichPgConfig(
   }
 
   /**
-   * Returns a copy of this config with the given database user.
+   * Returns a copy of this settings instance with the given database user.
    *
    * @param user the user to apply
-   * @return a new {@code RichPgConfig}
+   * @return a new {@code SessionSettings}
    * @throws NullPointerException if {@code user} is null
    */
-  public RichPgConfig withUser(String user) {
-    return new RichPgConfig(
+  public SessionSettings withUser(String user) {
+    return new SessionSettings(
         jdbcUrl,
         user,
         password,
         maximumPoolSize,
         connectionTimeout,
         statementTimeout,
-        transactionRetryAttempts,
+        retryAttempts,
         slowQueryLogThreshold,
+        healthCheckTimeout,
+        closeDrainDeadline,
         openTelemetry,
         scopeName,
         scopeVersion,
@@ -178,22 +202,24 @@ public record RichPgConfig(
   }
 
   /**
-   * Returns a copy of this config with the given database password.
+   * Returns a copy of this settings instance with the given database password.
    *
    * @param password the password to apply
-   * @return a new {@code RichPgConfig}
+   * @return a new {@code SessionSettings}
    * @throws NullPointerException if {@code password} is null
    */
-  public RichPgConfig withPassword(String password) {
-    return new RichPgConfig(
+  public SessionSettings withPassword(String password) {
+    return new SessionSettings(
         jdbcUrl,
         user,
         password,
         maximumPoolSize,
         connectionTimeout,
         statementTimeout,
-        transactionRetryAttempts,
+        retryAttempts,
         slowQueryLogThreshold,
+        healthCheckTimeout,
+        closeDrainDeadline,
         openTelemetry,
         scopeName,
         scopeVersion,
@@ -202,22 +228,24 @@ public record RichPgConfig(
   }
 
   /**
-   * Returns a copy of this config with the given maximum pool size.
+   * Returns a copy of this settings instance with the given maximum pool size.
    *
    * @param maximumPoolSize the maximum pool size to apply; at least 1
-   * @return a new {@code RichPgConfig}
+   * @return a new {@code SessionSettings}
    * @throws IllegalArgumentException if {@code maximumPoolSize} is less than 1
    */
-  public RichPgConfig withMaximumPoolSize(int maximumPoolSize) {
-    return new RichPgConfig(
+  public SessionSettings withMaximumPoolSize(int maximumPoolSize) {
+    return new SessionSettings(
         jdbcUrl,
         user,
         password,
         maximumPoolSize,
         connectionTimeout,
         statementTimeout,
-        transactionRetryAttempts,
+        retryAttempts,
         slowQueryLogThreshold,
+        healthCheckTimeout,
+        closeDrainDeadline,
         openTelemetry,
         scopeName,
         scopeVersion,
@@ -226,23 +254,25 @@ public record RichPgConfig(
   }
 
   /**
-   * Returns a copy of this config with the given connection timeout.
+   * Returns a copy of this settings instance with the given connection timeout.
    *
    * @param connectionTimeout the connection timeout to apply; must not be negative
-   * @return a new {@code RichPgConfig}
+   * @return a new {@code SessionSettings}
    * @throws NullPointerException if {@code connectionTimeout} is null
    * @throws IllegalArgumentException if {@code connectionTimeout} is negative
    */
-  public RichPgConfig withConnectionTimeout(Duration connectionTimeout) {
-    return new RichPgConfig(
+  public SessionSettings withConnectionTimeout(Duration connectionTimeout) {
+    return new SessionSettings(
         jdbcUrl,
         user,
         password,
         maximumPoolSize,
         connectionTimeout,
         statementTimeout,
-        transactionRetryAttempts,
+        retryAttempts,
         slowQueryLogThreshold,
+        healthCheckTimeout,
+        closeDrainDeadline,
         openTelemetry,
         scopeName,
         scopeVersion,
@@ -251,24 +281,26 @@ public record RichPgConfig(
   }
 
   /**
-   * Returns a copy of this config with the given statement timeout.
+   * Returns a copy of this settings instance with the given statement timeout.
    *
    * @param statementTimeout the statement timeout to apply; zero means no timeout; must not be
    *     negative
-   * @return a new {@code RichPgConfig}
+   * @return a new {@code SessionSettings}
    * @throws NullPointerException if {@code statementTimeout} is null
    * @throws IllegalArgumentException if {@code statementTimeout} is negative
    */
-  public RichPgConfig withStatementTimeout(Duration statementTimeout) {
-    return new RichPgConfig(
+  public SessionSettings withStatementTimeout(Duration statementTimeout) {
+    return new SessionSettings(
         jdbcUrl,
         user,
         password,
         maximumPoolSize,
         connectionTimeout,
         statementTimeout,
-        transactionRetryAttempts,
+        retryAttempts,
         slowQueryLogThreshold,
+        healthCheckTimeout,
+        closeDrainDeadline,
         openTelemetry,
         scopeName,
         scopeVersion,
@@ -277,22 +309,24 @@ public record RichPgConfig(
   }
 
   /**
-   * Returns a copy of this config with the given transaction retry attempts.
+   * Returns a copy of this settings instance with the given retry attempts.
    *
-   * @param transactionRetryAttempts the number of retry attempts to apply; at least 1
-   * @return a new {@code RichPgConfig}
-   * @throws IllegalArgumentException if {@code transactionRetryAttempts} is less than 1
+   * @param retryAttempts the number of retry attempts to apply; at least 1
+   * @return a new {@code SessionSettings}
+   * @throws IllegalArgumentException if {@code retryAttempts} is less than 1
    */
-  public RichPgConfig withTransactionRetryAttempts(int transactionRetryAttempts) {
-    return new RichPgConfig(
+  public SessionSettings withRetryAttempts(int retryAttempts) {
+    return new SessionSettings(
         jdbcUrl,
         user,
         password,
         maximumPoolSize,
         connectionTimeout,
         statementTimeout,
-        transactionRetryAttempts,
+        retryAttempts,
         slowQueryLogThreshold,
+        healthCheckTimeout,
+        closeDrainDeadline,
         openTelemetry,
         scopeName,
         scopeVersion,
@@ -301,24 +335,26 @@ public record RichPgConfig(
   }
 
   /**
-   * Returns a copy of this config with the given slow-query-log threshold.
+   * Returns a copy of this settings instance with the given slow-query-log threshold.
    *
    * @param slowQueryLogThreshold the threshold to apply; zero logs every query; must not be
    *     negative
-   * @return a new {@code RichPgConfig}
+   * @return a new {@code SessionSettings}
    * @throws NullPointerException if {@code slowQueryLogThreshold} is null
    * @throws IllegalArgumentException if {@code slowQueryLogThreshold} is negative
    */
-  public RichPgConfig withSlowQueryLogThreshold(Duration slowQueryLogThreshold) {
-    return new RichPgConfig(
+  public SessionSettings withSlowQueryLogThreshold(Duration slowQueryLogThreshold) {
+    return new SessionSettings(
         jdbcUrl,
         user,
         password,
         maximumPoolSize,
         connectionTimeout,
         statementTimeout,
-        transactionRetryAttempts,
+        retryAttempts,
         slowQueryLogThreshold,
+        healthCheckTimeout,
+        closeDrainDeadline,
         openTelemetry,
         scopeName,
         scopeVersion,
@@ -327,22 +363,78 @@ public record RichPgConfig(
   }
 
   /**
-   * Returns a copy of this config with the given OpenTelemetry instance.
+   * Returns a copy of this settings instance with the given health-check timeout.
+   *
+   * @param healthCheckTimeout the timeout to apply; must not be negative
+   * @return a new {@code SessionSettings}
+   * @throws NullPointerException if {@code healthCheckTimeout} is null
+   * @throws IllegalArgumentException if {@code healthCheckTimeout} is negative
+   */
+  public SessionSettings withHealthCheckTimeout(Duration healthCheckTimeout) {
+    return new SessionSettings(
+        jdbcUrl,
+        user,
+        password,
+        maximumPoolSize,
+        connectionTimeout,
+        statementTimeout,
+        retryAttempts,
+        slowQueryLogThreshold,
+        healthCheckTimeout,
+        closeDrainDeadline,
+        openTelemetry,
+        scopeName,
+        scopeVersion,
+        poolName,
+        artifactName);
+  }
+
+  /**
+   * Returns a copy of this settings instance with the given close-drain deadline.
+   *
+   * @param closeDrainDeadline the deadline to apply; must not be negative
+   * @return a new {@code SessionSettings}
+   * @throws NullPointerException if {@code closeDrainDeadline} is null
+   * @throws IllegalArgumentException if {@code closeDrainDeadline} is negative
+   */
+  public SessionSettings withCloseDrainDeadline(Duration closeDrainDeadline) {
+    return new SessionSettings(
+        jdbcUrl,
+        user,
+        password,
+        maximumPoolSize,
+        connectionTimeout,
+        statementTimeout,
+        retryAttempts,
+        slowQueryLogThreshold,
+        healthCheckTimeout,
+        closeDrainDeadline,
+        openTelemetry,
+        scopeName,
+        scopeVersion,
+        poolName,
+        artifactName);
+  }
+
+  /**
+   * Returns a copy of this settings instance with the given OpenTelemetry instance.
    *
    * @param openTelemetry the OpenTelemetry instance to apply
-   * @return a new {@code RichPgConfig}
+   * @return a new {@code SessionSettings}
    * @throws NullPointerException if {@code openTelemetry} is null
    */
-  public RichPgConfig withOpenTelemetry(OpenTelemetry openTelemetry) {
-    return new RichPgConfig(
+  public SessionSettings withOpenTelemetry(OpenTelemetry openTelemetry) {
+    return new SessionSettings(
         jdbcUrl,
         user,
         password,
         maximumPoolSize,
         connectionTimeout,
         statementTimeout,
-        transactionRetryAttempts,
+        retryAttempts,
         slowQueryLogThreshold,
+        healthCheckTimeout,
+        closeDrainDeadline,
         openTelemetry,
         scopeName,
         scopeVersion,
@@ -351,22 +443,24 @@ public record RichPgConfig(
   }
 
   /**
-   * Returns a copy of this config with the given instrumentation-scope name.
+   * Returns a copy of this settings instance with the given instrumentation-scope name.
    *
    * @param scopeName the scope name to apply
-   * @return a new {@code RichPgConfig}
+   * @return a new {@code SessionSettings}
    * @throws NullPointerException if {@code scopeName} is null
    */
-  public RichPgConfig withScopeName(String scopeName) {
-    return new RichPgConfig(
+  public SessionSettings withScopeName(String scopeName) {
+    return new SessionSettings(
         jdbcUrl,
         user,
         password,
         maximumPoolSize,
         connectionTimeout,
         statementTimeout,
-        transactionRetryAttempts,
+        retryAttempts,
         slowQueryLogThreshold,
+        healthCheckTimeout,
+        closeDrainDeadline,
         openTelemetry,
         scopeName,
         scopeVersion,
@@ -375,22 +469,24 @@ public record RichPgConfig(
   }
 
   /**
-   * Returns a copy of this config with the given instrumentation-scope version.
+   * Returns a copy of this settings instance with the given instrumentation-scope version.
    *
    * @param scopeVersion the scope version to apply
-   * @return a new {@code RichPgConfig}
+   * @return a new {@code SessionSettings}
    * @throws NullPointerException if {@code scopeVersion} is null
    */
-  public RichPgConfig withScopeVersion(String scopeVersion) {
-    return new RichPgConfig(
+  public SessionSettings withScopeVersion(String scopeVersion) {
+    return new SessionSettings(
         jdbcUrl,
         user,
         password,
         maximumPoolSize,
         connectionTimeout,
         statementTimeout,
-        transactionRetryAttempts,
+        retryAttempts,
         slowQueryLogThreshold,
+        healthCheckTimeout,
+        closeDrainDeadline,
         openTelemetry,
         scopeName,
         scopeVersion,
@@ -399,22 +495,24 @@ public record RichPgConfig(
   }
 
   /**
-   * Returns a copy of this config with the given pool name.
+   * Returns a copy of this settings instance with the given pool name.
    *
    * @param poolName the pool name to apply
-   * @return a new {@code RichPgConfig}
+   * @return a new {@code SessionSettings}
    * @throws NullPointerException if {@code poolName} is null
    */
-  public RichPgConfig withPoolName(String poolName) {
-    return new RichPgConfig(
+  public SessionSettings withPoolName(String poolName) {
+    return new SessionSettings(
         jdbcUrl,
         user,
         password,
         maximumPoolSize,
         connectionTimeout,
         statementTimeout,
-        transactionRetryAttempts,
+        retryAttempts,
         slowQueryLogThreshold,
+        healthCheckTimeout,
+        closeDrainDeadline,
         openTelemetry,
         scopeName,
         scopeVersion,
@@ -423,22 +521,24 @@ public record RichPgConfig(
   }
 
   /**
-   * Returns a copy of this config with the given artifact name.
+   * Returns a copy of this settings instance with the given artifact name.
    *
    * @param artifactName the artifact name to apply
-   * @return a new {@code RichPgConfig}
+   * @return a new {@code SessionSettings}
    * @throws NullPointerException if {@code artifactName} is null
    */
-  public RichPgConfig withArtifactName(String artifactName) {
-    return new RichPgConfig(
+  public SessionSettings withArtifactName(String artifactName) {
+    return new SessionSettings(
         jdbcUrl,
         user,
         password,
         maximumPoolSize,
         connectionTimeout,
         statementTimeout,
-        transactionRetryAttempts,
+        retryAttempts,
         slowQueryLogThreshold,
+        healthCheckTimeout,
+        closeDrainDeadline,
         openTelemetry,
         scopeName,
         scopeVersion,
@@ -449,7 +549,7 @@ public record RichPgConfig(
   /** Redacts {@link #password()} so it can't leak into logs or exception messages. */
   @Override
   public String toString() {
-    return "RichPgConfig["
+    return "SessionSettings["
         + "jdbcUrl="
         + jdbcUrl
         + ", user="
@@ -461,10 +561,14 @@ public record RichPgConfig(
         + connectionTimeout
         + ", statementTimeout="
         + statementTimeout
-        + ", transactionRetryAttempts="
-        + transactionRetryAttempts
+        + ", retryAttempts="
+        + retryAttempts
         + ", slowQueryLogThreshold="
         + slowQueryLogThreshold
+        + ", healthCheckTimeout="
+        + healthCheckTimeout
+        + ", closeDrainDeadline="
+        + closeDrainDeadline
         + ", openTelemetry="
         + openTelemetry
         + ", scopeName="
@@ -479,11 +583,12 @@ public record RichPgConfig(
   }
 
   /**
-   * Builds a {@link HikariDataSource} configured from this config's connection and pool settings.
+   * Builds a {@link HikariDataSource} configured from this settings instance's connection and pool
+   * settings.
    *
    * @return a new HikariCP-backed data source
    */
-  public HikariDataSource toHikariDataSource() {
+  HikariDataSource toHikariDataSource() {
     HikariConfig hc = new HikariConfig();
     hc.setJdbcUrl(jdbcUrl);
     hc.setUsername(user);

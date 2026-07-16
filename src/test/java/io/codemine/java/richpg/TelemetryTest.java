@@ -22,8 +22,8 @@ class TelemetryTest {
         .build();
   }
 
-  private static RichPgConfig config(OpenTelemetry otel) {
-    return RichPgConfig.defaults("jdbc:postgresql://localhost/test", "u", "p")
+  private static SessionSettings config(OpenTelemetry otel) {
+    return SessionSettings.defaults("jdbc:postgresql://localhost/test", "u", "p")
         .withOpenTelemetry(otel)
         .withArtifactName("music-catalogue");
   }

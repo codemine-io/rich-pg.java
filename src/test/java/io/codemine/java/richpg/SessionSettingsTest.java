@@ -1,5 +1,7 @@
 package io.codemine.java.richpg;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -9,10 +11,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
-class RichPgConfigTest {
+class SessionSettingsTest {
 
-  private static RichPgConfig defaults() {
-    return RichPgConfig.defaults("jdbc:postgresql://localhost/test", "user", "pw");
+  private static SessionSettings defaults() {
+    return SessionSettings.defaults("jdbc:postgresql://localhost/test", "user", "pw");
+  }
+
+  private static SessionSettings base() {
+    return defaults();
   }
 
   @Test
@@ -31,8 +37,15 @@ class RichPgConfigTest {
     assertEquals(10, config.maximumPoolSize());
     assertEquals(Duration.ofSeconds(30), config.connectionTimeout());
     assertEquals(Duration.ofSeconds(30), config.statementTimeout());
-    assertEquals(3, config.transactionRetryAttempts());
+    assertEquals(7, config.retryAttempts());
     assertEquals(Duration.ofSeconds(1), config.slowQueryLogThreshold());
+  }
+
+  @Test
+  void defaultsSetHealthCheckTimeoutAndCloseDrainDeadline() {
+    SessionSettings s = SessionSettings.defaults("jdbc:postgresql://h/db", "u", "p");
+    assertThat(s.healthCheckTimeout()).isEqualTo(Duration.ofSeconds(2));
+    assertThat(s.closeDrainDeadline()).isEqualTo(Duration.ofSeconds(10));
   }
 
   @Test
@@ -47,13 +60,13 @@ class RichPgConfigTest {
 
   @Test
   void requiredFieldsCannotBeNull() {
-    assertThrows(NullPointerException.class, () -> RichPgConfig.defaults(null, "user", "pw"));
+    assertThrows(NullPointerException.class, () -> SessionSettings.defaults(null, "user", "pw"));
     assertThrows(
         NullPointerException.class,
-        () -> RichPgConfig.defaults("jdbc:postgresql://localhost/test", null, "pw"));
+        () -> SessionSettings.defaults("jdbc:postgresql://localhost/test", null, "pw"));
     assertThrows(
         NullPointerException.class,
-        () -> RichPgConfig.defaults("jdbc:postgresql://localhost/test", "user", null));
+        () -> SessionSettings.defaults("jdbc:postgresql://localhost/test", "user", null));
   }
 
   @Test
@@ -89,10 +102,10 @@ class RichPgConfigTest {
   }
 
   @Test
-  void transactionRetryAttemptsMustBeAtLeastOne() {
-    assertThrows(IllegalArgumentException.class, () -> defaults().withTransactionRetryAttempts(0));
-    assertThrows(IllegalArgumentException.class, () -> defaults().withTransactionRetryAttempts(-1));
-    assertDoesNotThrow(() -> defaults().withTransactionRetryAttempts(1));
+  void retryAttemptsMustBeAtLeastOne() {
+    assertThrows(IllegalArgumentException.class, () -> defaults().withRetryAttempts(0));
+    assertThrows(IllegalArgumentException.class, () -> defaults().withRetryAttempts(-1));
+    assertDoesNotThrow(() -> defaults().withRetryAttempts(1));
   }
 
   @Test
@@ -120,18 +133,32 @@ class RichPgConfigTest {
   }
 
   @Test
+  void healthCheckTimeoutMustNotBeNegative() {
+    assertThatThrownBy(() -> base().withHealthCheckTimeout(Duration.ofSeconds(-1)))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void closeDrainDeadlineMustNotBeNegative() {
+    assertThatThrownBy(() -> base().withCloseDrainDeadline(Duration.ofSeconds(-1)))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
   void withersPreserveEveryOtherField() {
     var tweaked = defaults().withMaximumPoolSize(42);
     var expected =
-        new RichPgConfig(
+        new SessionSettings(
             "jdbc:postgresql://localhost/test",
             "user",
             "pw",
             42,
             Duration.ofSeconds(30),
             Duration.ofSeconds(30),
-            3,
+            7,
             Duration.ofSeconds(1),
+            Duration.ofSeconds(2),
+            Duration.ofSeconds(10),
             tweaked.openTelemetry(),
             "io.codemine.java.rich-pg",
             "1.0.0",
@@ -145,15 +172,17 @@ class RichPgConfigTest {
   void withScopeNamePreservesEveryOtherField() {
     var tweaked = defaults().withScopeName("io.pgenie.artifacts.myspace.musiccatalogue");
     var expected =
-        new RichPgConfig(
+        new SessionSettings(
             "jdbc:postgresql://localhost/test",
             "user",
             "pw",
             10,
             Duration.ofSeconds(30),
             Duration.ofSeconds(30),
-            3,
+            7,
             Duration.ofSeconds(1),
+            Duration.ofSeconds(2),
+            Duration.ofSeconds(10),
             tweaked.openTelemetry(),
             "io.pgenie.artifacts.myspace.musiccatalogue",
             "1.0.0",
@@ -167,15 +196,17 @@ class RichPgConfigTest {
   void withScopeVersionPreservesEveryOtherField() {
     var tweaked = defaults().withScopeVersion("1.0.1");
     var expected =
-        new RichPgConfig(
+        new SessionSettings(
             "jdbc:postgresql://localhost/test",
             "user",
             "pw",
             10,
             Duration.ofSeconds(30),
             Duration.ofSeconds(30),
-            3,
+            7,
             Duration.ofSeconds(1),
+            Duration.ofSeconds(2),
+            Duration.ofSeconds(10),
             tweaked.openTelemetry(),
             "io.codemine.java.rich-pg",
             "1.0.1",
@@ -189,15 +220,17 @@ class RichPgConfigTest {
   void withPoolNamePreservesEveryOtherField() {
     var tweaked = defaults().withPoolName("music-catalogue-pool");
     var expected =
-        new RichPgConfig(
+        new SessionSettings(
             "jdbc:postgresql://localhost/test",
             "user",
             "pw",
             10,
             Duration.ofSeconds(30),
             Duration.ofSeconds(30),
-            3,
+            7,
             Duration.ofSeconds(1),
+            Duration.ofSeconds(2),
+            Duration.ofSeconds(10),
             tweaked.openTelemetry(),
             "io.codemine.java.rich-pg",
             "1.0.0",
@@ -211,15 +244,17 @@ class RichPgConfigTest {
   void withArtifactNamePreservesEveryOtherField() {
     var tweaked = defaults().withArtifactName("music-catalogue");
     var expected =
-        new RichPgConfig(
+        new SessionSettings(
             "jdbc:postgresql://localhost/test",
             "user",
             "pw",
             10,
             Duration.ofSeconds(30),
             Duration.ofSeconds(30),
-            3,
+            7,
             Duration.ofSeconds(1),
+            Duration.ofSeconds(2),
+            Duration.ofSeconds(10),
             tweaked.openTelemetry(),
             "io.codemine.java.rich-pg",
             "1.0.0",
