@@ -9,10 +9,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.codemine.java.postgresql.jdbc.Statement;
-import io.codemine.java.postgresql.jdbc.Transaction;
-import io.codemine.java.postgresql.jdbc.TransactionSettings;
 import io.codemine.java.richpg.observability.StatementObservability;
 import io.codemine.java.richpg.observability.TransactionObservability;
+import io.codemine.java.richpg.transaction.Transaction;
+import io.codemine.java.richpg.transaction.TransactionSettings;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;

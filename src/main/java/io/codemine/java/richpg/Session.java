@@ -2,11 +2,11 @@ package io.codemine.java.richpg;
 
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
-import io.codemine.java.postgresql.jdbc.IsolationLevel;
 import io.codemine.java.postgresql.jdbc.Statement;
-import io.codemine.java.postgresql.jdbc.Transaction;
-import io.codemine.java.postgresql.jdbc.TransactionSettings;
 import io.codemine.java.richpg.observability.SessionObservability;
+import io.codemine.java.richpg.transaction.IsolationLevel;
+import io.codemine.java.richpg.transaction.Transaction;
+import io.codemine.java.richpg.transaction.TransactionSettings;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.StatusCode;
 import java.sql.Connection;

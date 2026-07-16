@@ -2,8 +2,8 @@ package io.codemine.java.richpg.observability;
 
 import io.codemine.java.postgresql.jdbc.Statement;
 import io.codemine.java.postgresql.jdbc.StatementBatch;
-import io.codemine.java.postgresql.jdbc.TransactionContext;
-import io.codemine.java.postgresql.jdbc.TransactionSettings;
+import io.codemine.java.richpg.transaction.TransactionContext;
+import io.codemine.java.richpg.transaction.TransactionSettings;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.metrics.DoubleHistogram;
 import io.opentelemetry.api.metrics.LongCounter;

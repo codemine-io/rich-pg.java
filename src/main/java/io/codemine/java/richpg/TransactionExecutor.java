@@ -1,8 +1,8 @@
 package io.codemine.java.richpg;
 
-import io.codemine.java.postgresql.jdbc.Transaction;
-import io.codemine.java.postgresql.jdbc.TransactionSettings;
 import io.codemine.java.richpg.observability.TransactionObservability;
+import io.codemine.java.richpg.transaction.Transaction;
+import io.codemine.java.richpg.transaction.TransactionSettings;
 import io.opentelemetry.api.trace.Span;
 import java.sql.Connection;
 import java.sql.SQLException;
