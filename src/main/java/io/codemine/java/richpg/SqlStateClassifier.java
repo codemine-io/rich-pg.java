@@ -55,6 +55,23 @@ final class SqlStateClassifier {
     return RetryStrategy.NO_RETRY;
   }
 
+  /**
+   * Returns true if {@code failure}'s SQLSTATE marks a transaction-wide failure that a savepoint
+   * rollback cannot heal ({@code 40001} serialization failure, {@code 40P01} deadlock detected) —
+   * these must propagate to the transaction-level retry loop instead of being absorbed by {@link
+   * io.codemine.java.richpg.Transaction#or}.
+   */
+  static boolean isTransactionWide(Throwable failure) {
+    if (failure == null) {
+      return false;
+    }
+    if (!(failure instanceof SQLException sqlException)) {
+      return false;
+    }
+    String state = sqlException.getSQLState();
+    return state != null && (state.equals("40001") || state.equals("40P01"));
+  }
+
   private static SQLException extractSqlException(Throwable t) {
     if (t instanceof SQLException sqlException) {
       return sqlException;

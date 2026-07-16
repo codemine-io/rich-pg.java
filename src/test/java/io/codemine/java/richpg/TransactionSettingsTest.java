@@ -1,4 +1,4 @@
-package io.codemine.java.richpg.transaction;
+package io.codemine.java.richpg;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -11,11 +11,10 @@ import org.junit.jupiter.api.Test;
 public class TransactionSettingsTest {
 
   @Test
-  void defaultUsesSerializableIsolationAndIsNotReadOnlyAndRetries() {
+  void defaultUsesSerializableIsolationAndIsNotReadOnly() {
     assertEquals(
         IsolationLevel.SERIALIZABLE, TransactionSettings.SERIALIZABLE_WRITE.isolationLevel());
     assertFalse(TransactionSettings.SERIALIZABLE_WRITE.readOnly());
-    assertEquals(7, TransactionSettings.SERIALIZABLE_WRITE.maxAttempts());
   }
 
   @Test
@@ -37,17 +36,9 @@ public class TransactionSettingsTest {
   }
 
   @Test
-  void withMaxAttemptsReturnsModifiedCopyWithoutMutatingOriginal() {
-    TransactionSettings modified = TransactionSettings.SERIALIZABLE_WRITE.withMaxAttempts(5);
-
-    assertEquals(5, modified.maxAttempts());
-    assertEquals(7, TransactionSettings.SERIALIZABLE_WRITE.maxAttempts());
-  }
-
-  @Test
   void constructorRejectsNullIsolationLevel() {
     var thrown =
-        assertThrows(NullPointerException.class, () -> new TransactionSettings(null, false, 1));
+        assertThrows(NullPointerException.class, () -> new TransactionSettings(null, false));
     assertEquals("isolationLevel", thrown.getMessage());
   }
 
@@ -58,14 +49,5 @@ public class TransactionSettingsTest {
             NullPointerException.class,
             () -> TransactionSettings.SERIALIZABLE_WRITE.withIsolationLevel(null));
     assertEquals("level", thrown.getMessage());
-  }
-
-  @Test
-  void withMaxAttemptsRejectsLessThanOne() {
-    var thrown =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> TransactionSettings.SERIALIZABLE_WRITE.withMaxAttempts(0));
-    assertEquals("maxAttempts must be at least 1", thrown.getMessage());
   }
 }

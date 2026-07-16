@@ -1,4 +1,4 @@
-package io.codemine.java.richpg.transaction;
+package io.codemine.java.richpg;
 
 import java.sql.Connection;
 

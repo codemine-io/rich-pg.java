@@ -3,10 +3,6 @@ package io.codemine.java.richpg;
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import io.codemine.java.postgresql.jdbc.Statement;
-import io.codemine.java.richpg.observability.SessionObservability;
-import io.codemine.java.richpg.transaction.IsolationLevel;
-import io.codemine.java.richpg.transaction.Transaction;
-import io.codemine.java.richpg.transaction.TransactionSettings;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.StatusCode;
 import java.sql.Connection;
@@ -28,6 +24,11 @@ import org.slf4j.LoggerFactory;
  * OpenTelemetry traces and metrics, SLF4J logging, a health check, and graceful shutdown.
  *
  * <p>Instances are thread-safe; concurrent calls are supported. {@link #close()} is idempotent.
+ *
+ * <p>TODO(Tasks 4-6): this class is in an intermediate state. {@link #executeRetryable} and {@link
+ * #executeTransaction} currently delegate to temporary compiling stubs ({@link StatementExecutor},
+ * {@link TransactionExecutor}) that do not yet retry or record telemetry; the full rewrite lands in
+ * later tasks of the design-revision plan.
  */
 public class Session implements AutoCloseable {
 
@@ -35,7 +36,7 @@ public class Session implements AutoCloseable {
 
   private final RichPgConfig config;
   private final HikariDataSource dataSource;
-  private final SessionObservability observability;
+  private final Telemetry telemetry;
 
   private final AtomicBoolean closed = new AtomicBoolean(false);
 
@@ -51,7 +52,7 @@ public class Session implements AutoCloseable {
   public Session(RichPgConfig config) {
     this.config = Objects.requireNonNull(config, "config");
     this.dataSource = config.toHikariDataSource();
-    this.observability = SessionObservability.fromConfig(config, dataSource.getHikariPoolMXBean());
+    this.telemetry = Telemetry.forSession(config, dataSource.getHikariPoolMXBean());
   }
 
   /**
@@ -86,9 +87,15 @@ public class Session implements AutoCloseable {
     Objects.requireNonNull(statement, "statement");
 
     try (Connection connection = dataSource.getConnection()) {
-      return observability
-          .forStatement(statement, parentSpan)
-          .execute(() -> statement.execute(connection));
+      Telemetry.StatementHandle handle = telemetry.startStatement(statement, parentSpan);
+      try {
+        R result = statement.execute(connection);
+        handle.succeeded();
+        return result;
+      } catch (SQLException e) {
+        handle.failed(e);
+        throw e;
+      }
     }
   }
 
@@ -142,17 +149,15 @@ public class Session implements AutoCloseable {
     Objects.requireNonNull(statement, "statement");
     Objects.requireNonNull(settings, "settings");
 
-    StatementExecutor executor = new StatementExecutor(observability.forStatementRetry());
-    return executor.execute(statement, settings, dataSource::getConnection, parentSpan);
+    StatementExecutor executor = new StatementExecutor(telemetry);
+    return executor.execute(statement, dataSource::getConnection, parentSpan);
   }
 
   /**
    * Execute a transaction using default settings derived from the session configuration.
    *
-   * <p>The default isolation level is {@link IsolationLevel#SERIALIZABLE}, the transaction is
-   * read-write, and the maximum number of attempts is taken from {@link
-   * RichPgConfig#transactionRetryAttempts()}. The transaction span is parented to the current
-   * OpenTelemetry span, if any.
+   * <p>The default isolation level is {@link IsolationLevel#SERIALIZABLE} and the transaction is
+   * read-write. The transaction span is parented to the current OpenTelemetry span, if any.
    *
    * @param transaction the transaction to execute
    * @return the transaction result
@@ -171,11 +176,7 @@ public class Session implements AutoCloseable {
    * @throws SQLException if a database access error occurs
    */
   public <R> R executeTransaction(Transaction<R> transaction, Span parentSpan) throws SQLException {
-    return executeTransaction(
-        transaction,
-        new TransactionSettings(
-            IsolationLevel.SERIALIZABLE, false, config.transactionRetryAttempts()),
-        parentSpan);
+    return executeTransaction(transaction, TransactionSettings.SERIALIZABLE_WRITE, parentSpan);
   }
 
   /**
@@ -211,8 +212,7 @@ public class Session implements AutoCloseable {
     Objects.requireNonNull(settings, "settings");
 
     try (Connection connection = dataSource.getConnection()) {
-      TransactionExecutor executor =
-          new TransactionExecutor(observability.forTransaction(settings, parentSpan));
+      TransactionExecutor executor = new TransactionExecutor(telemetry);
       return executor.execute(transaction, settings, connection, parentSpan);
     }
   }
@@ -223,7 +223,7 @@ public class Session implements AutoCloseable {
    * @return {@code true} if the database round-trip succeeds, {@code false} otherwise
    */
   public boolean healthCheck() {
-    Span span = observability.startHealthCheckSpan();
+    Span span = telemetry.startHealthCheckSpan();
 
     try (Connection connection = dataSource.getConnection();
         PreparedStatement preparedStatement = connection.prepareStatement("select 1")) {
@@ -255,7 +255,7 @@ public class Session implements AutoCloseable {
       return;
     }
 
-    SessionObservability.CloseHandle close = observability.startClose();
+    Telemetry.CloseHandle close = telemetry.startClose();
 
     HikariPoolMXBean pool = dataSource.getHikariPoolMXBean();
     Instant deadline = Instant.now().plus(Duration.ofSeconds(10));

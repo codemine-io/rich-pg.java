@@ -1,4 +1,4 @@
-package io.codemine.java.richpg.transaction;
+package io.codemine.java.richpg;
 
 import io.codemine.java.postgresql.jdbc.Statement;
 import io.codemine.java.postgresql.jdbc.StatementBatch;
@@ -16,7 +16,7 @@ import java.util.Objects;
  * {@link Connection}-backed default. Use {@link #of(Connection)} to obtain a plain JDBC-backed
  * implementation.
  */
-public interface TransactionContext extends ExecutionContext {
+interface TransactionContext extends ExecutionContext {
 
   /**
    * Returns whether auto-commit is currently enabled.

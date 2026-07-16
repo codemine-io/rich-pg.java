@@ -66,4 +66,17 @@ class SqlStateClassifierTest {
     assertThat(SqlStateClassifier.classify(wrapper, false))
         .isEqualTo(RetryStrategy.SAME_CONNECTION);
   }
+
+  @Test
+  void isTransactionWideForSerializationFailureAndDeadlock() {
+    assertThat(SqlStateClassifier.isTransactionWide(new SQLException("x", "40001"))).isTrue();
+    assertThat(SqlStateClassifier.isTransactionWide(new SQLException("x", "40P01"))).isTrue();
+  }
+
+  @Test
+  void isTransactionWideFalseForUniqueViolationAndOthers() {
+    assertThat(SqlStateClassifier.isTransactionWide(new SQLException("x", "23505"))).isFalse();
+    assertThat(SqlStateClassifier.isTransactionWide(new RuntimeException("x"))).isFalse();
+    assertThat(SqlStateClassifier.isTransactionWide(null)).isFalse();
+  }
 }

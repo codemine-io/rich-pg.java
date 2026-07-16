@@ -1,4 +1,4 @@
-package io.codemine.java.richpg.transaction;
+package io.codemine.java.richpg;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;

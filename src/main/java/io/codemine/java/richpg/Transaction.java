@@ -1,4 +1,4 @@
-package io.codemine.java.richpg.transaction;
+package io.codemine.java.richpg;
 
 import io.codemine.java.postgresql.jdbc.Statement;
 import java.sql.SQLException;
@@ -10,6 +10,13 @@ import java.util.function.Function;
 
 /**
  * A unit of work run atomically against a {@link TransactionContext}.
+ *
+ * <p><b>Bodies must be pure database logic.</b> The session-side retry loop may re-execute {@link
+ * #run} any number of times on a fresh attempt after a retryable failure, so a transaction body
+ * must be safely re-executable: no non-database I/O, no external side effects (sending emails,
+ * calling other services, mutating in-memory state outside the transaction), and no assumption that
+ * a previous attempt's partial work is visible. This is the transaction-level analog of {@link
+ * Statement#idempotent()}.
  *
  * @param <R> the result type produced by {@link #run}
  */
@@ -25,103 +32,6 @@ public interface Transaction<R> {
    * @throws SQLException if a database access error occurs
    */
   R run(ExecutionContext context) throws SQLException;
-
-  /**
-   * Runs this transaction using {@link TransactionSettings#SERIALIZABLE_WRITE}.
-   *
-   * @param context the transaction context to use
-   * @return the result of {@link #run}
-   * @throws SQLException if a database access error occurs while executing the transaction
-   */
-  default R execute(TransactionContext context) throws SQLException {
-    return execute(context, TransactionSettings.SERIALIZABLE_WRITE);
-  }
-
-  /**
-   * Runs this transaction atomically: disables autocommit, applies {@code settings}, runs {@link
-   * #run}, commits on success, and rolls back on any failure &mdash; including an {@link Error}, so
-   * that restoring autocommit afterward can never implicitly commit a partially-run transaction.
-   * The context's original autocommit, isolation level and read-only state are restored before
-   * returning or throwing; if restoring that state itself fails, the failure is attached to the
-   * original one via {@link Throwable#addSuppressed} rather than replacing it.
-   *
-   * @param context the transaction context to use
-   * @param settings the settings to apply for this execution
-   * @return the result of {@link #run}
-   * @throws SQLException if a database access error occurs while executing the transaction
-   */
-  default R execute(TransactionContext context, TransactionSettings settings) throws SQLException {
-    Objects.requireNonNull(context, "context");
-    Objects.requireNonNull(settings, "settings");
-
-    boolean originalAutoCommit = context.getAutoCommit();
-    int originalIsolation = context.getTransactionIsolation();
-    boolean originalReadOnly = context.isReadOnly();
-
-    context.setAutoCommit(false);
-    context.setTransactionIsolation(settings.isolationLevel().jdbcLevel());
-    context.setReadOnly(settings.readOnly());
-
-    R result;
-    try {
-      result = executeAttempts(context, settings);
-    } catch (Throwable t) {
-      if (!(t instanceof Exception)) {
-        try {
-          context.rollback();
-        } catch (SQLException suppressed) {
-          t.addSuppressed(suppressed);
-        }
-      }
-      try {
-        context.setAutoCommit(originalAutoCommit);
-        context.setTransactionIsolation(originalIsolation);
-        context.setReadOnly(originalReadOnly);
-      } catch (SQLException suppressed) {
-        t.addSuppressed(suppressed);
-      }
-      throw t;
-    }
-
-    context.setAutoCommit(originalAutoCommit);
-    context.setTransactionIsolation(originalIsolation);
-    context.setReadOnly(originalReadOnly);
-    return result;
-  }
-
-  /**
-   * Runs {@link #run} in a loop, committing on success and rolling back and retrying on a retryable
-   * {@link SQLException}, up to {@code settings.maxAttempts()}.
-   */
-  private R executeAttempts(TransactionContext context, TransactionSettings settings)
-      throws SQLException {
-    for (int attempt = 1; ; attempt++) {
-      try {
-        R result = run(context);
-        context.commit();
-        return result;
-      } catch (Exception e) {
-        try {
-          context.rollback();
-        } catch (SQLException suppressed) {
-          e.addSuppressed(suppressed);
-        }
-        if (attempt >= settings.maxAttempts()) {
-          throw e;
-        }
-        boolean retryable = false;
-        if (e instanceof SQLException sqlException) {
-          String state = sqlException.getSQLState();
-          retryable =
-              state != null
-                  && (state.equals("40001") || state.equals("40P01") || state.equals("23505"));
-        }
-        if (!retryable) {
-          throw e;
-        }
-      }
-    }
-  }
 
   /**
    * Adapts a {@link Statement} into a {@code Transaction} for use in composition.
@@ -185,15 +95,15 @@ public interface Transaction<R> {
    * Falls back to {@code alternative} if this transaction fails.
    *
    * <p>Runs this transaction under a savepoint. On success, releases the savepoint and returns the
-   * result. On a {@link SQLException} whose SQLSTATE is {@code 40001} (serialization failure) or
-   * {@code 40P01} (deadlock detected), rethrows it untouched: those failures are transaction-wide
-   * and a savepoint rollback cannot heal them, so they must reach {@link #execute}'s retry loop
-   * instead. On any other failure &mdash; a {@link SQLException} with a different SQLSTATE, an
-   * unchecked exception, or an {@link Error} &mdash; rolls back to the savepoint and releases it
-   * (PostgreSQL keeps a savepoint alive after rolling back to it, so it must be released explicitly
-   * to avoid it lingering for the rest of the transaction), then runs {@code alternative}. If
-   * {@code alternative} also fails, the original failure is attached to it via {@link
-   * Throwable#addSuppressed}.
+   * result. On a {@link SQLException} that {@link SqlStateClassifier#isTransactionWide} marks as
+   * transaction-wide (serialization failure {@code 40001} or deadlock detected {@code 40P01}),
+   * rethrows it untouched: those failures are transaction-wide and a savepoint rollback cannot heal
+   * them, so they must reach the session-side transaction retry loop instead. On any other failure
+   * &mdash; a {@link SQLException} with a different SQLSTATE, an unchecked exception, or an {@link
+   * Error} &mdash; rolls back to the savepoint and releases it (PostgreSQL keeps a savepoint alive
+   * after rolling back to it, so it must be released explicitly to avoid it lingering for the rest
+   * of the transaction), then runs {@code alternative}. If {@code alternative} also fails, the
+   * original failure is attached to it via {@link Throwable#addSuppressed}.
    *
    * @param alternative the transaction to run if this one fails recoverably
    * @return a transaction that falls back to {@code alternative} on recoverable failure
@@ -207,11 +117,8 @@ public interface Transaction<R> {
         context.releaseSavepoint(savepoint);
         return result;
       } catch (Throwable t) {
-        if (t instanceof SQLException e) {
-          String state = e.getSQLState();
-          if (state != null && (state.equals("40001") || state.equals("40P01"))) {
-            throw e;
-          }
+        if (SqlStateClassifier.isTransactionWide(t)) {
+          throw t;
         }
         try {
           context.rollback(savepoint);

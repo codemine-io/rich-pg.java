@@ -1,74 +1,43 @@
 package io.codemine.java.richpg;
 
-import io.codemine.java.richpg.observability.TransactionObservability;
-import io.codemine.java.richpg.transaction.Transaction;
-import io.codemine.java.richpg.transaction.TransactionSettings;
 import io.opentelemetry.api.trace.Span;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Objects;
 
 /**
- * Executes {@link Transaction} instances with OpenTelemetry tracing, retry counting and outcome
- * classification.
+ * Executes {@link Transaction} instances against a connection.
  *
- * <p>The executor delegates all observability work to {@link TransactionObservability}. It emits a
- * single INTERNAL {@code "transaction"} span that parents all statement spans created by the
- * transaction body, reports retries via the {@code pgenie.transaction.retries} counter, and
- * annotates the span with transaction settings, total attempts and final outcome.
+ * <p>TODO(Task 6): this is a temporary compiling stub. The retry loop and full Telemetry-driven
+ * span/event recording (per design-revision-plan §1.4/§3.1) are added when this class is fully
+ * rewritten.
  */
-public final class TransactionExecutor {
+final class TransactionExecutor {
 
-  private final TransactionObservability observability;
+  private final Telemetry telemetry;
 
-  /**
-   * Creates a new transaction executor.
-   *
-   * @param observability the observability helper used to create and record transaction
-   *     observations
-   * @throws NullPointerException if {@code observability} is null
-   */
-  public TransactionExecutor(TransactionObservability observability) {
-    this.observability = Objects.requireNonNull(observability, "observability");
+  TransactionExecutor(Telemetry telemetry) {
+    this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
   }
 
-  /**
-   * Executes the supplied transaction with the given settings and connection.
-   *
-   * <p>A transaction span is started as a child of {@code parentSpan} (or the current span if
-   * {@code parentSpan} is {@code null}). Statement execution inside the transaction body is routed
-   * through {@link StatementExecutor} so that statement spans are nested under the transaction
-   * span.
-   *
-   * @param transaction the transaction to execute
-   * @param settings the transaction settings
-   * @param connection the JDBC connection to use
-   * @param parentSpan the parent span, or {@code null} to use the current span
-   * @return the transaction result
-   * @throws SQLException if a database access error occurs
-   */
-  public <R> R execute(
+  <R> R execute(
       Transaction<R> transaction,
       TransactionSettings settings,
       Connection connection,
       Span parentSpan)
       throws SQLException {
-    Objects.requireNonNull(transaction, "transaction");
-    Objects.requireNonNull(settings, "settings");
-    Objects.requireNonNull(connection, "connection");
-
-    var observation = observability.observe(settings, connection, parentSpan);
+    // TODO(Task 6): replace with the retry loop + Telemetry-driven span/event recording.
+    TransactionContext ctx = TransactionContext.of(connection);
+    ctx.setAutoCommit(false);
+    ctx.setTransactionIsolation(settings.isolationLevel().jdbcLevel());
+    ctx.setReadOnly(settings.readOnly());
     try {
-      try (var scope = observation.span().makeCurrent()) {
-        R result = transaction.execute(observation, settings);
-        observation.markCommitted();
-        return result;
-      }
-    } catch (Throwable t) {
-      observation.markFailed(t);
-      throw t;
-    } finally {
-      observation.close();
+      R result = transaction.run(ctx);
+      ctx.commit();
+      return result;
+    } catch (Exception e) {
+      ctx.rollback();
+      throw e;
     }
   }
 }
