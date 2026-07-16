@@ -25,11 +25,9 @@ import org.slf4j.LoggerFactory;
  * <p>Instances are thread-safe; concurrent calls are supported. {@link #close()} is idempotent.
  *
  * <p>{@link #execute} always retries per {@link SqlStateClassifier}, up to {@link
- * SessionSettings#retryAttempts()} attempts; there is no non-retrying entry point.
- *
- * <p>TODO(Task 6): {@link #executeTransaction} currently delegates to a temporary compiling stub
- * ({@link TransactionExecutor}) that does not yet retry or record telemetry; the full rewrite lands
- * in a later task of the design-revision plan.
+ * SessionSettings#retryAttempts()} attempts; there is no non-retrying entry point. {@link
+ * #executeTransaction} retries the whole transaction body up to the same {@link
+ * SessionSettings#retryAttempts()} bound when a failure is transaction-retryable.
  */
 public class Session implements AutoCloseable {
 
@@ -157,7 +155,8 @@ public class Session implements AutoCloseable {
 
     try (Connection connection = dataSource.getConnection()) {
       TransactionExecutor executor = new TransactionExecutor(telemetry);
-      return executor.execute(transaction, settings, connection, parentSpan);
+      return executor.execute(
+          transaction, settings, config.retryAttempts(), connection, parentSpan);
     }
   }
 
