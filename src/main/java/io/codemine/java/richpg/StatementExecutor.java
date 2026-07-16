@@ -11,10 +11,9 @@ import java.util.Objects;
  * Executes a single {@link Statement} outside of a transaction, always retrying per {@link
  * SqlStateClassifier}.
  *
- * <p>Per design §2.2/§2.3, there is no non-retrying entry point: safety is guaranteed by the
- * classifier only retrying {@code 08}-class connection failures when {@link Statement#idempotent()}
- * is true, and always retrying {@code 40001}/{@code 40P01}/{@code 23505} on the same connection
- * regardless of idempotency.
+ * <p>There is no non-retrying entry point: safety is guaranteed by the classifier only retrying
+ * {@code 08}-class connection failures when {@link Statement#idempotent()} is true, and always
+ * retrying {@code 40001}/{@code 40P01} on the same connection regardless of idempotency.
  */
 final class StatementExecutor {
 
@@ -33,9 +32,10 @@ final class StatementExecutor {
     Objects.requireNonNull(statement, "statement");
     Objects.requireNonNull(connectionSupplier, "connectionSupplier");
 
-    Span operationSpan = telemetry.startStatementOperation(statement, maxAttempts, parentSpan);
-    try (var scope = operationSpan.makeCurrent()) {
-      return runAttempts(statement, maxAttempts, connectionSupplier, operationSpan);
+    Telemetry.StatementOperationHandle operation =
+        telemetry.startStatementOperation(statement, maxAttempts, parentSpan);
+    try (var scope = operation.span().makeCurrent()) {
+      return runAttempts(statement, maxAttempts, connectionSupplier, operation);
     }
   }
 
@@ -43,7 +43,7 @@ final class StatementExecutor {
       Statement<R> statement,
       int maxAttempts,
       ConnectionSupplier connectionSupplier,
-      Span operationSpan)
+      Telemetry.StatementOperationHandle operation)
       throws SQLException {
     Connection connection = connectionSupplier.get();
     try {
@@ -51,7 +51,7 @@ final class StatementExecutor {
         long attemptStart = System.nanoTime();
         try {
           R result = statement.execute(connection);
-          telemetry.finishStatementOperation(operationSpan, attempt, true, false, null);
+          operation.finish(attempt, Telemetry.Outcome.SUCCEEDED, null);
           return result;
         } catch (SQLException failure) {
           Duration attemptDuration = Duration.ofNanos(System.nanoTime() - attemptStart);
@@ -59,10 +59,15 @@ final class StatementExecutor {
               SqlStateClassifier.classify(failure, statement.idempotent());
           boolean retryable = strategy != SqlStateClassifier.RetryStrategy.NO_RETRY;
           if (!retryable || attempt >= maxAttempts) {
-            telemetry.finishStatementOperation(operationSpan, attempt, false, retryable, failure);
+            operation.finish(
+                attempt,
+                retryable
+                    ? Telemetry.Outcome.RETRIES_EXHAUSTED
+                    : Telemetry.Outcome.NON_RETRYABLE_FAILURE,
+                failure);
             throw failure;
           }
-          telemetry.recordAttemptFailed(operationSpan, attempt, failure, attemptDuration);
+          telemetry.recordAttemptFailed(operation.span(), attempt, failure, attemptDuration);
           if (strategy == SqlStateClassifier.RetryStrategy.NEW_CONNECTION) {
             connection.close();
             connection = connectionSupplier.get();

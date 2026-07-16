@@ -72,7 +72,7 @@ try (Session session = new Session(config)) {
 ```
 
 `SessionSettings.defaults(jdbcUrl, user, password)` returns a config with a
-pool size of 10, a 30-second connection/statement timeout, 7 transaction and statement
+pool size of 10, a 30-second connection/statement timeout, 3 transaction and statement
 retry attempts, a 1-second slow-query-log threshold, a 2-second health-check timeout,
 a 10-second close drain deadline, and the global `OpenTelemetry` instance - override
 any of it with the `with*` methods shown above.

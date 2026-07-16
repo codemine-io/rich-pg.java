@@ -5,17 +5,25 @@ import java.sql.SQLException;
 /**
  * Classifies a failure's PostgreSQL SQLSTATE into the retry strategy a retry loop should use.
  *
- * <p>{@code 40001} (serialization failure), {@code 40P01} (deadlock detected) and {@code 23505}
- * (unique violation, which PostgreSQL may raise instead of {@code 40001} under {@code SERIALIZABLE}
- * isolation) are retried on the same connection regardless of idempotency, since PostgreSQL
- * guarantees the failing statement's own implicit transaction did not commit. SQLSTATE class {@code
- * 08} (connection exception) is retried on a freshly borrowed connection, but only when the
- * operation is idempotent: the outcome is ambiguous, so retrying a non-idempotent operation could
- * duplicate an effect that already landed. Every other failure is not retried.
+ * <p>{@code 40001} (serialization failure) and {@code 40P01} (deadlock detected) are retried on the
+ * same connection regardless of idempotency, since PostgreSQL guarantees the failing statement's
+ * own implicit transaction did not commit. The transaction retry loop additionally retries {@code
+ * 23505} (unique violation, which PostgreSQL may raise instead of {@code 40001} under {@code
+ * SERIALIZABLE} isolation) via {@link #isTransactionRetryable}: retrying it at statement
+ * granularity would be near-always futile, since the statement loop has no savepoint to fall back
+ * to and would simply repeat the same conflicting write. SQLSTATE class {@code 08} (connection
+ * exception) is retried on a freshly borrowed connection, but only when the operation is
+ * idempotent: the outcome is ambiguous, so retrying a non-idempotent operation could duplicate an
+ * effect that already landed. Every other failure is not retried.
  */
 final class SqlStateClassifier {
 
   private SqlStateClassifier() {}
+
+  private static final String SERIALIZATION_FAILURE = "40001";
+  private static final String DEADLOCK_DETECTED = "40P01";
+  private static final String UNIQUE_VIOLATION = "23505";
+  private static final String CONNECTION_EXCEPTION_CLASS = "08";
 
   /** The connection strategy a retry loop should use for its next attempt. */
   enum RetryStrategy {
@@ -28,31 +36,37 @@ final class SqlStateClassifier {
   }
 
   /**
-   * Classifies {@code failure} into the retry strategy a retry loop should use.
+   * Classifies {@code failure} into the retry strategy the statement retry loop should use.
    *
-   * @param failure the exception to classify; may be null
+   * @param failure the exception to classify
    * @param idempotent whether the operation being retried is idempotent
    * @return the retry strategy to use for the next attempt
    */
   static RetryStrategy classify(Throwable failure, boolean idempotent) {
-    if (failure == null) {
-      return RetryStrategy.NO_RETRY;
-    }
-    SQLException sqlException = extractSqlException(failure);
-    if (sqlException == null) {
-      return RetryStrategy.NO_RETRY;
-    }
-    String state = sqlException.getSQLState();
+    String state = sqlState(failure);
     if (state == null) {
       return RetryStrategy.NO_RETRY;
     }
-    if (state.equals("40001") || state.equals("40P01") || state.equals("23505")) {
+    if (state.equals(SERIALIZATION_FAILURE) || state.equals(DEADLOCK_DETECTED)) {
       return RetryStrategy.SAME_CONNECTION;
     }
-    if (state.startsWith("08") && idempotent) {
+    if (state.startsWith(CONNECTION_EXCEPTION_CLASS) && idempotent) {
       return RetryStrategy.NEW_CONNECTION;
     }
     return RetryStrategy.NO_RETRY;
+  }
+
+  /**
+   * Returns true if the transaction retry loop should retry {@code failure} on the same connection:
+   * serialization failure ({@code 40001}), deadlock detected ({@code 40P01}), or unique violation
+   * ({@code 23505}).
+   */
+  static boolean isTransactionRetryable(Throwable failure) {
+    String state = sqlState(failure);
+    return state != null
+        && (state.equals(SERIALIZATION_FAILURE)
+            || state.equals(DEADLOCK_DETECTED)
+            || state.equals(UNIQUE_VIOLATION));
   }
 
   /**
@@ -62,14 +76,14 @@ final class SqlStateClassifier {
    * io.codemine.java.richpg.Transaction#or}.
    */
   static boolean isTransactionWide(Throwable failure) {
-    if (failure == null) {
-      return false;
-    }
-    if (!(failure instanceof SQLException sqlException)) {
-      return false;
-    }
-    String state = sqlException.getSQLState();
-    return state != null && (state.equals("40001") || state.equals("40P01"));
+    String state = sqlState(failure);
+    return state != null
+        && (state.equals(SERIALIZATION_FAILURE) || state.equals(DEADLOCK_DETECTED));
+  }
+
+  private static String sqlState(Throwable failure) {
+    SQLException sqlException = extractSqlException(failure);
+    return sqlException == null ? null : sqlException.getSQLState();
   }
 
   private static SQLException extractSqlException(Throwable t) {

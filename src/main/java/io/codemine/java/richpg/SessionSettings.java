@@ -65,7 +65,7 @@ public record SessionSettings(
   private static final String MODULE_VERSION = "1.0.0";
 
   /** Default number of retry attempts shared by the statement and transaction retry loops. */
-  static final int DEFAULT_RETRY_ATTEMPTS = 7;
+  static final int DEFAULT_RETRY_ATTEMPTS = 3;
 
   /**
    * Validates the record's components.
@@ -112,7 +112,7 @@ public record SessionSettings(
 
   /**
    * Creates settings with the given required fields and default values for everything else: a
-   * maximum pool size of 10, a 30-second connection timeout, a 30-second statement timeout, 7 retry
+   * maximum pool size of 10, a 30-second connection timeout, a 30-second statement timeout, 3 retry
    * attempts, a 1-second slow-query-log threshold, a 2-second health-check timeout, a 10-second
    * close-drain deadline, and the global {@link OpenTelemetry} instance.
    *
@@ -157,22 +157,9 @@ public record SessionSettings(
    * @throws NullPointerException if {@code jdbcUrl} is null
    */
   public SessionSettings withJdbcUrl(String jdbcUrl) {
-    return new SessionSettings(
-        jdbcUrl,
-        user,
-        password,
-        maximumPoolSize,
-        connectionTimeout,
-        statementTimeout,
-        retryAttempts,
-        slowQueryLogThreshold,
-        healthCheckTimeout,
-        closeDrainDeadline,
-        openTelemetry,
-        scopeName,
-        scopeVersion,
-        poolName,
-        artifactName);
+    Fields f = fields();
+    f.jdbcUrl = jdbcUrl;
+    return f.build();
   }
 
   /**
@@ -183,22 +170,9 @@ public record SessionSettings(
    * @throws NullPointerException if {@code user} is null
    */
   public SessionSettings withUser(String user) {
-    return new SessionSettings(
-        jdbcUrl,
-        user,
-        password,
-        maximumPoolSize,
-        connectionTimeout,
-        statementTimeout,
-        retryAttempts,
-        slowQueryLogThreshold,
-        healthCheckTimeout,
-        closeDrainDeadline,
-        openTelemetry,
-        scopeName,
-        scopeVersion,
-        poolName,
-        artifactName);
+    Fields f = fields();
+    f.user = user;
+    return f.build();
   }
 
   /**
@@ -209,22 +183,9 @@ public record SessionSettings(
    * @throws NullPointerException if {@code password} is null
    */
   public SessionSettings withPassword(String password) {
-    return new SessionSettings(
-        jdbcUrl,
-        user,
-        password,
-        maximumPoolSize,
-        connectionTimeout,
-        statementTimeout,
-        retryAttempts,
-        slowQueryLogThreshold,
-        healthCheckTimeout,
-        closeDrainDeadline,
-        openTelemetry,
-        scopeName,
-        scopeVersion,
-        poolName,
-        artifactName);
+    Fields f = fields();
+    f.password = password;
+    return f.build();
   }
 
   /**
@@ -235,22 +196,9 @@ public record SessionSettings(
    * @throws IllegalArgumentException if {@code maximumPoolSize} is less than 1
    */
   public SessionSettings withMaximumPoolSize(int maximumPoolSize) {
-    return new SessionSettings(
-        jdbcUrl,
-        user,
-        password,
-        maximumPoolSize,
-        connectionTimeout,
-        statementTimeout,
-        retryAttempts,
-        slowQueryLogThreshold,
-        healthCheckTimeout,
-        closeDrainDeadline,
-        openTelemetry,
-        scopeName,
-        scopeVersion,
-        poolName,
-        artifactName);
+    Fields f = fields();
+    f.maximumPoolSize = maximumPoolSize;
+    return f.build();
   }
 
   /**
@@ -262,22 +210,9 @@ public record SessionSettings(
    * @throws IllegalArgumentException if {@code connectionTimeout} is negative
    */
   public SessionSettings withConnectionTimeout(Duration connectionTimeout) {
-    return new SessionSettings(
-        jdbcUrl,
-        user,
-        password,
-        maximumPoolSize,
-        connectionTimeout,
-        statementTimeout,
-        retryAttempts,
-        slowQueryLogThreshold,
-        healthCheckTimeout,
-        closeDrainDeadline,
-        openTelemetry,
-        scopeName,
-        scopeVersion,
-        poolName,
-        artifactName);
+    Fields f = fields();
+    f.connectionTimeout = connectionTimeout;
+    return f.build();
   }
 
   /**
@@ -290,22 +225,9 @@ public record SessionSettings(
    * @throws IllegalArgumentException if {@code statementTimeout} is negative
    */
   public SessionSettings withStatementTimeout(Duration statementTimeout) {
-    return new SessionSettings(
-        jdbcUrl,
-        user,
-        password,
-        maximumPoolSize,
-        connectionTimeout,
-        statementTimeout,
-        retryAttempts,
-        slowQueryLogThreshold,
-        healthCheckTimeout,
-        closeDrainDeadline,
-        openTelemetry,
-        scopeName,
-        scopeVersion,
-        poolName,
-        artifactName);
+    Fields f = fields();
+    f.statementTimeout = statementTimeout;
+    return f.build();
   }
 
   /**
@@ -316,22 +238,9 @@ public record SessionSettings(
    * @throws IllegalArgumentException if {@code retryAttempts} is less than 1
    */
   public SessionSettings withRetryAttempts(int retryAttempts) {
-    return new SessionSettings(
-        jdbcUrl,
-        user,
-        password,
-        maximumPoolSize,
-        connectionTimeout,
-        statementTimeout,
-        retryAttempts,
-        slowQueryLogThreshold,
-        healthCheckTimeout,
-        closeDrainDeadline,
-        openTelemetry,
-        scopeName,
-        scopeVersion,
-        poolName,
-        artifactName);
+    Fields f = fields();
+    f.retryAttempts = retryAttempts;
+    return f.build();
   }
 
   /**
@@ -344,22 +253,9 @@ public record SessionSettings(
    * @throws IllegalArgumentException if {@code slowQueryLogThreshold} is negative
    */
   public SessionSettings withSlowQueryLogThreshold(Duration slowQueryLogThreshold) {
-    return new SessionSettings(
-        jdbcUrl,
-        user,
-        password,
-        maximumPoolSize,
-        connectionTimeout,
-        statementTimeout,
-        retryAttempts,
-        slowQueryLogThreshold,
-        healthCheckTimeout,
-        closeDrainDeadline,
-        openTelemetry,
-        scopeName,
-        scopeVersion,
-        poolName,
-        artifactName);
+    Fields f = fields();
+    f.slowQueryLogThreshold = slowQueryLogThreshold;
+    return f.build();
   }
 
   /**
@@ -371,22 +267,9 @@ public record SessionSettings(
    * @throws IllegalArgumentException if {@code healthCheckTimeout} is negative
    */
   public SessionSettings withHealthCheckTimeout(Duration healthCheckTimeout) {
-    return new SessionSettings(
-        jdbcUrl,
-        user,
-        password,
-        maximumPoolSize,
-        connectionTimeout,
-        statementTimeout,
-        retryAttempts,
-        slowQueryLogThreshold,
-        healthCheckTimeout,
-        closeDrainDeadline,
-        openTelemetry,
-        scopeName,
-        scopeVersion,
-        poolName,
-        artifactName);
+    Fields f = fields();
+    f.healthCheckTimeout = healthCheckTimeout;
+    return f.build();
   }
 
   /**
@@ -398,22 +281,9 @@ public record SessionSettings(
    * @throws IllegalArgumentException if {@code closeDrainDeadline} is negative
    */
   public SessionSettings withCloseDrainDeadline(Duration closeDrainDeadline) {
-    return new SessionSettings(
-        jdbcUrl,
-        user,
-        password,
-        maximumPoolSize,
-        connectionTimeout,
-        statementTimeout,
-        retryAttempts,
-        slowQueryLogThreshold,
-        healthCheckTimeout,
-        closeDrainDeadline,
-        openTelemetry,
-        scopeName,
-        scopeVersion,
-        poolName,
-        artifactName);
+    Fields f = fields();
+    f.closeDrainDeadline = closeDrainDeadline;
+    return f.build();
   }
 
   /**
@@ -424,22 +294,9 @@ public record SessionSettings(
    * @throws NullPointerException if {@code openTelemetry} is null
    */
   public SessionSettings withOpenTelemetry(OpenTelemetry openTelemetry) {
-    return new SessionSettings(
-        jdbcUrl,
-        user,
-        password,
-        maximumPoolSize,
-        connectionTimeout,
-        statementTimeout,
-        retryAttempts,
-        slowQueryLogThreshold,
-        healthCheckTimeout,
-        closeDrainDeadline,
-        openTelemetry,
-        scopeName,
-        scopeVersion,
-        poolName,
-        artifactName);
+    Fields f = fields();
+    f.openTelemetry = openTelemetry;
+    return f.build();
   }
 
   /**
@@ -450,22 +307,9 @@ public record SessionSettings(
    * @throws NullPointerException if {@code scopeName} is null
    */
   public SessionSettings withScopeName(String scopeName) {
-    return new SessionSettings(
-        jdbcUrl,
-        user,
-        password,
-        maximumPoolSize,
-        connectionTimeout,
-        statementTimeout,
-        retryAttempts,
-        slowQueryLogThreshold,
-        healthCheckTimeout,
-        closeDrainDeadline,
-        openTelemetry,
-        scopeName,
-        scopeVersion,
-        poolName,
-        artifactName);
+    Fields f = fields();
+    f.scopeName = scopeName;
+    return f.build();
   }
 
   /**
@@ -476,22 +320,9 @@ public record SessionSettings(
    * @throws NullPointerException if {@code scopeVersion} is null
    */
   public SessionSettings withScopeVersion(String scopeVersion) {
-    return new SessionSettings(
-        jdbcUrl,
-        user,
-        password,
-        maximumPoolSize,
-        connectionTimeout,
-        statementTimeout,
-        retryAttempts,
-        slowQueryLogThreshold,
-        healthCheckTimeout,
-        closeDrainDeadline,
-        openTelemetry,
-        scopeName,
-        scopeVersion,
-        poolName,
-        artifactName);
+    Fields f = fields();
+    f.scopeVersion = scopeVersion;
+    return f.build();
   }
 
   /**
@@ -502,22 +333,9 @@ public record SessionSettings(
    * @throws NullPointerException if {@code poolName} is null
    */
   public SessionSettings withPoolName(String poolName) {
-    return new SessionSettings(
-        jdbcUrl,
-        user,
-        password,
-        maximumPoolSize,
-        connectionTimeout,
-        statementTimeout,
-        retryAttempts,
-        slowQueryLogThreshold,
-        healthCheckTimeout,
-        closeDrainDeadline,
-        openTelemetry,
-        scopeName,
-        scopeVersion,
-        poolName,
-        artifactName);
+    Fields f = fields();
+    f.poolName = poolName;
+    return f.build();
   }
 
   /**
@@ -528,22 +346,71 @@ public record SessionSettings(
    * @throws NullPointerException if {@code artifactName} is null
    */
   public SessionSettings withArtifactName(String artifactName) {
-    return new SessionSettings(
-        jdbcUrl,
-        user,
-        password,
-        maximumPoolSize,
-        connectionTimeout,
-        statementTimeout,
-        retryAttempts,
-        slowQueryLogThreshold,
-        healthCheckTimeout,
-        closeDrainDeadline,
-        openTelemetry,
-        scopeName,
-        scopeVersion,
-        poolName,
-        artifactName);
+    Fields f = fields();
+    f.artifactName = artifactName;
+    return f.build();
+  }
+
+  private Fields fields() {
+    Fields f = new Fields();
+    f.jdbcUrl = jdbcUrl;
+    f.user = user;
+    f.password = password;
+    f.maximumPoolSize = maximumPoolSize;
+    f.connectionTimeout = connectionTimeout;
+    f.statementTimeout = statementTimeout;
+    f.retryAttempts = retryAttempts;
+    f.slowQueryLogThreshold = slowQueryLogThreshold;
+    f.healthCheckTimeout = healthCheckTimeout;
+    f.closeDrainDeadline = closeDrainDeadline;
+    f.openTelemetry = openTelemetry;
+    f.scopeName = scopeName;
+    f.scopeVersion = scopeVersion;
+    f.poolName = poolName;
+    f.artifactName = artifactName;
+    return f;
+  }
+
+  /**
+   * Every component, mutable, so a {@code with*} method can change exactly the field it names and
+   * pass the rest through unchanged without re-listing all 15 constructor arguments at each call
+   * site. Not part of the public API; the public shape stays a record with individual withers.
+   */
+  private static final class Fields {
+    String jdbcUrl;
+    String user;
+    String password;
+    int maximumPoolSize;
+    Duration connectionTimeout;
+    Duration statementTimeout;
+    int retryAttempts;
+    Duration slowQueryLogThreshold;
+    Duration healthCheckTimeout;
+    Duration closeDrainDeadline;
+    OpenTelemetry openTelemetry;
+    String scopeName;
+    String scopeVersion;
+    String poolName;
+    String artifactName;
+
+    SessionSettings build() {
+      return new SessionSettings(
+          jdbcUrl,
+          user,
+          password,
+          maximumPoolSize,
+          connectionTimeout,
+          statementTimeout,
+          retryAttempts,
+          slowQueryLogThreshold,
+          healthCheckTimeout,
+          closeDrainDeadline,
+          openTelemetry,
+          scopeName,
+          scopeVersion,
+          poolName,
+          artifactName);
+    }
   }
 
   /** Redacts {@link #password()} so it can't leak into logs or exception messages. */

@@ -37,7 +37,7 @@ class SessionSettingsTest {
     assertEquals(10, config.maximumPoolSize());
     assertEquals(Duration.ofSeconds(30), config.connectionTimeout());
     assertEquals(Duration.ofSeconds(30), config.statementTimeout());
-    assertEquals(7, config.retryAttempts());
+    assertEquals(3, config.retryAttempts());
     assertEquals(Duration.ofSeconds(1), config.slowQueryLogThreshold());
   }
 
@@ -155,7 +155,7 @@ class SessionSettingsTest {
             42,
             Duration.ofSeconds(30),
             Duration.ofSeconds(30),
-            7,
+            3,
             Duration.ofSeconds(1),
             Duration.ofSeconds(2),
             Duration.ofSeconds(10),
@@ -179,7 +179,7 @@ class SessionSettingsTest {
             10,
             Duration.ofSeconds(30),
             Duration.ofSeconds(30),
-            7,
+            3,
             Duration.ofSeconds(1),
             Duration.ofSeconds(2),
             Duration.ofSeconds(10),
@@ -203,7 +203,7 @@ class SessionSettingsTest {
             10,
             Duration.ofSeconds(30),
             Duration.ofSeconds(30),
-            7,
+            3,
             Duration.ofSeconds(1),
             Duration.ofSeconds(2),
             Duration.ofSeconds(10),
@@ -227,7 +227,7 @@ class SessionSettingsTest {
             10,
             Duration.ofSeconds(30),
             Duration.ofSeconds(30),
-            7,
+            3,
             Duration.ofSeconds(1),
             Duration.ofSeconds(2),
             Duration.ofSeconds(10),
@@ -251,7 +251,7 @@ class SessionSettingsTest {
             10,
             Duration.ofSeconds(30),
             Duration.ofSeconds(30),
-            7,
+            3,
             Duration.ofSeconds(1),
             Duration.ofSeconds(2),
             Duration.ofSeconds(10),

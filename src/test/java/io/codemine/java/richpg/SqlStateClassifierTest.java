@@ -9,11 +9,6 @@ import org.junit.jupiter.api.Test;
 class SqlStateClassifierTest {
 
   @Test
-  void nullFailureIsNoRetry() {
-    assertThat(SqlStateClassifier.classify(null, true)).isEqualTo(RetryStrategy.NO_RETRY);
-  }
-
-  @Test
   void nonSqlExceptionIsNoRetry() {
     assertThat(SqlStateClassifier.classify(new RuntimeException("boom"), true))
         .isEqualTo(RetryStrategy.NO_RETRY);
@@ -34,10 +29,10 @@ class SqlStateClassifierTest {
   }
 
   @Test
-  void uniqueViolationIsSameConnectionRegardlessOfIdempotency() {
+  void uniqueViolationIsNoRetryForTheStatementLoop() {
     SQLException e = new SQLException("dup", "23505");
-    assertThat(SqlStateClassifier.classify(e, false)).isEqualTo(RetryStrategy.SAME_CONNECTION);
-    assertThat(SqlStateClassifier.classify(e, true)).isEqualTo(RetryStrategy.SAME_CONNECTION);
+    assertThat(SqlStateClassifier.classify(e, false)).isEqualTo(RetryStrategy.NO_RETRY);
+    assertThat(SqlStateClassifier.classify(e, true)).isEqualTo(RetryStrategy.NO_RETRY);
   }
 
   @Test
@@ -77,6 +72,25 @@ class SqlStateClassifierTest {
   void isTransactionWideFalseForUniqueViolationAndOthers() {
     assertThat(SqlStateClassifier.isTransactionWide(new SQLException("x", "23505"))).isFalse();
     assertThat(SqlStateClassifier.isTransactionWide(new RuntimeException("x"))).isFalse();
-    assertThat(SqlStateClassifier.isTransactionWide(null)).isFalse();
+  }
+
+  @Test
+  void isTransactionWideUnwrapsOneCauseLevelLikeClassifyDoes() {
+    SQLException cause = new SQLException("conflict", "40001");
+    RuntimeException wrapper = new RuntimeException(cause);
+    assertThat(SqlStateClassifier.isTransactionWide(wrapper)).isTrue();
+  }
+
+  @Test
+  void isTransactionRetryableForSerializationDeadlockAndUniqueViolation() {
+    assertThat(SqlStateClassifier.isTransactionRetryable(new SQLException("x", "40001"))).isTrue();
+    assertThat(SqlStateClassifier.isTransactionRetryable(new SQLException("x", "40P01"))).isTrue();
+    assertThat(SqlStateClassifier.isTransactionRetryable(new SQLException("x", "23505"))).isTrue();
+  }
+
+  @Test
+  void isTransactionRetryableFalseForOthers() {
+    assertThat(SqlStateClassifier.isTransactionRetryable(new SQLException("x", "42601"))).isFalse();
+    assertThat(SqlStateClassifier.isTransactionRetryable(new RuntimeException("x"))).isFalse();
   }
 }
