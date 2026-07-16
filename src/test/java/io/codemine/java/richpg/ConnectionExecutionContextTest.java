@@ -17,12 +17,13 @@ import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/** Unit tests for {@link TransactionContext}. */
-public class TransactionContextTest {
+/** Unit tests for {@link ConnectionExecutionContext}. */
+public class ConnectionExecutionContextTest {
 
   @Test
   void ofRejectsNullConnection() {
-    var thrown = assertThrows(NullPointerException.class, () -> TransactionContext.of(null));
+    var thrown =
+        assertThrows(NullPointerException.class, () -> new ConnectionExecutionContext(null));
     assertEquals("connection", thrown.getMessage());
   }
 
@@ -30,7 +31,7 @@ public class TransactionContextTest {
   void executeStatementDelegatesToConnection() throws Exception {
     RecordingHandler handler = new RecordingHandler();
     Connection connection = recordingConnection(handler);
-    TransactionContext context = TransactionContext.of(connection);
+    ConnectionExecutionContext context = new ConnectionExecutionContext(connection);
     FakeStatement statement = new FakeStatement();
 
     String result = context.execute(statement);
@@ -42,7 +43,8 @@ public class TransactionContextTest {
   @Test
   void executeBatchEmptyReturnsEmptyList() throws Exception {
     RecordingHandler handler = new RecordingHandler();
-    TransactionContext context = TransactionContext.of(recordingConnection(handler));
+    ConnectionExecutionContext context =
+        new ConnectionExecutionContext(recordingConnection(handler));
 
     List<Void> result = context.executeBatch(List.of());
 
@@ -51,7 +53,8 @@ public class TransactionContextTest {
 
   @Test
   void executeBatchRejectsNullIterable() {
-    TransactionContext context = TransactionContext.of(recordingConnection(new RecordingHandler()));
+    ConnectionExecutionContext context =
+        new ConnectionExecutionContext(recordingConnection(new RecordingHandler()));
 
     var thrown = assertThrows(NullPointerException.class, () -> context.executeBatch(null));
     assertEquals("statements", thrown.getMessage());
@@ -59,7 +62,8 @@ public class TransactionContextTest {
 
   @Test
   void executeBatchRejectsNullStatement() {
-    TransactionContext context = TransactionContext.of(recordingConnection(new RecordingHandler()));
+    ConnectionExecutionContext context =
+        new ConnectionExecutionContext(recordingConnection(new RecordingHandler()));
     List<Statement<Void>> statements = new ArrayList<>();
     statements.add(new FakeUpdateStatement());
     statements.add(null);
@@ -70,7 +74,8 @@ public class TransactionContextTest {
 
   @Test
   void executeBatchRejectsRowsReturningStatement() {
-    TransactionContext context = TransactionContext.of(recordingConnection(new RecordingHandler()));
+    ConnectionExecutionContext context =
+        new ConnectionExecutionContext(recordingConnection(new RecordingHandler()));
 
     var thrown =
         assertThrows(
@@ -82,7 +87,8 @@ public class TransactionContextTest {
 
   @Test
   void executeBatchRejectsMismatchedSql() {
-    TransactionContext context = TransactionContext.of(recordingConnection(new RecordingHandler()));
+    ConnectionExecutionContext context =
+        new ConnectionExecutionContext(recordingConnection(new RecordingHandler()));
 
     var thrown =
         assertThrows(
@@ -98,7 +104,8 @@ public class TransactionContextTest {
 
   @Test
   void executeBatchRejectsNullSql() {
-    TransactionContext context = TransactionContext.of(recordingConnection(new RecordingHandler()));
+    ConnectionExecutionContext context =
+        new ConnectionExecutionContext(recordingConnection(new RecordingHandler()));
 
     var thrown =
         assertThrows(
@@ -109,97 +116,12 @@ public class TransactionContextTest {
   }
 
   @Test
-  void getAutoCommitDelegatesToConnection() throws Exception {
-    RecordingHandler handler = new RecordingHandler();
-    handler.returnValue = true;
-    TransactionContext context = TransactionContext.of(recordingConnection(handler));
-
-    boolean result = context.getAutoCommit();
-
-    assertTrue(result);
-    assertEquals(List.of("getAutoCommit"), handler.invokedMethods);
-  }
-
-  @Test
-  void setAutoCommitDelegatesToConnection() throws Exception {
-    RecordingHandler handler = new RecordingHandler();
-    TransactionContext context = TransactionContext.of(recordingConnection(handler));
-
-    context.setAutoCommit(true);
-
-    assertEquals(List.of("setAutoCommit"), handler.invokedMethods);
-  }
-
-  @Test
-  void getTransactionIsolationDelegatesToConnection() throws Exception {
-    RecordingHandler handler = new RecordingHandler();
-    handler.returnValue = Connection.TRANSACTION_SERIALIZABLE;
-    TransactionContext context = TransactionContext.of(recordingConnection(handler));
-
-    int result = context.getTransactionIsolation();
-
-    assertEquals(Connection.TRANSACTION_SERIALIZABLE, result);
-    assertEquals(List.of("getTransactionIsolation"), handler.invokedMethods);
-  }
-
-  @Test
-  void setTransactionIsolationDelegatesToConnection() throws Exception {
-    RecordingHandler handler = new RecordingHandler();
-    TransactionContext context = TransactionContext.of(recordingConnection(handler));
-
-    context.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
-
-    assertEquals(List.of("setTransactionIsolation"), handler.invokedMethods);
-  }
-
-  @Test
-  void isReadOnlyDelegatesToConnection() throws Exception {
-    RecordingHandler handler = new RecordingHandler();
-    handler.returnValue = true;
-    TransactionContext context = TransactionContext.of(recordingConnection(handler));
-
-    boolean result = context.isReadOnly();
-
-    assertTrue(result);
-    assertEquals(List.of("isReadOnly"), handler.invokedMethods);
-  }
-
-  @Test
-  void setReadOnlyDelegatesToConnection() throws Exception {
-    RecordingHandler handler = new RecordingHandler();
-    TransactionContext context = TransactionContext.of(recordingConnection(handler));
-
-    context.setReadOnly(true);
-
-    assertEquals(List.of("setReadOnly"), handler.invokedMethods);
-  }
-
-  @Test
-  void commitDelegatesToConnection() throws Exception {
-    RecordingHandler handler = new RecordingHandler();
-    TransactionContext context = TransactionContext.of(recordingConnection(handler));
-
-    context.commit();
-
-    assertEquals(List.of("commit"), handler.invokedMethods);
-  }
-
-  @Test
-  void rollbackDelegatesToConnection() throws Exception {
-    RecordingHandler handler = new RecordingHandler();
-    TransactionContext context = TransactionContext.of(recordingConnection(handler));
-
-    context.rollback();
-
-    assertEquals(List.of("rollback"), handler.invokedMethods);
-  }
-
-  @Test
   void setSavepointDelegatesToConnection() throws Exception {
     RecordingHandler handler = new RecordingHandler();
     Savepoint savepoint = throwingSavepoint();
     handler.returnValue = savepoint;
-    TransactionContext context = TransactionContext.of(recordingConnection(handler));
+    ConnectionExecutionContext context =
+        new ConnectionExecutionContext(recordingConnection(handler));
 
     Savepoint result = context.setSavepoint();
 
@@ -210,7 +132,8 @@ public class TransactionContextTest {
   @Test
   void rollbackToSavepointDelegatesToConnection() throws Exception {
     RecordingHandler handler = new RecordingHandler();
-    TransactionContext context = TransactionContext.of(recordingConnection(handler));
+    ConnectionExecutionContext context =
+        new ConnectionExecutionContext(recordingConnection(handler));
     Savepoint savepoint = throwingSavepoint();
 
     context.rollback(savepoint);
@@ -221,7 +144,8 @@ public class TransactionContextTest {
   @Test
   void releaseSavepointDelegatesToConnection() throws Exception {
     RecordingHandler handler = new RecordingHandler();
-    TransactionContext context = TransactionContext.of(recordingConnection(handler));
+    ConnectionExecutionContext context =
+        new ConnectionExecutionContext(recordingConnection(handler));
     Savepoint savepoint = throwingSavepoint();
 
     context.releaseSavepoint(savepoint);

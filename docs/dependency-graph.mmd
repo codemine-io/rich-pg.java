@@ -10,7 +10,7 @@ flowchart LR
   subgraph transaction["transaction"]
     TransactionExecutor["TransactionExecutor<br/><small>retry loop over Transaction</small>"]
     Transaction["Transaction<br/><small>unit of work, pure & re-runnable</small>"]
-    TransactionContext["TransactionContext<br/><small>commit/rollback control surface</small>"]
+    ConnectionExecutionContext["ConnectionExecutionContext<br/><small>plain ExecutionContext over a Connection</small>"]
     ExecutionContext["ExecutionContext<br/><small>execute + savepoints in-tx</small>"]
     TransactionSettings["TransactionSettings<br/><small>isolation level + read-only flag</small>"]
   end
@@ -42,18 +42,14 @@ flowchart LR
   StatementExecutor --> Telemetry
 
   TransactionExecutor --> ClassifiedSqlFailure
+  TransactionExecutor --> ConnectionExecutionContext
   TransactionExecutor --> ExecutionContext
   TransactionExecutor --> Telemetry
   TransactionExecutor --> Transaction
-  TransactionExecutor --> TransactionContext
   TransactionExecutor --> TransactionSettings
 
   Transaction --> ClassifiedSqlFailure
   Transaction --> ExecutionContext
-  Transaction --> TransactionContext
-
-  TransactionContext --> ExecutionContext
-  TransactionContext --> Transaction
 
   ExecutionContext --> Transaction
 

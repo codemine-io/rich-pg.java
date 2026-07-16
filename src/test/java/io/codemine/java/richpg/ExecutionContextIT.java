@@ -15,8 +15,9 @@ import org.junit.jupiter.api.Test;
  * Integration test for {@link ExecutionContext} batch execution against a real database.
  *
  * <p>Batch validation edge cases (null/empty input, mismatched SQL, rows-returning statements) are
- * covered at the unit level by {@link TransactionContextTest}, since that validation happens before
- * any connection is touched; this class only needs to verify the actual DB round-trip.
+ * covered at the unit level by {@link ConnectionExecutionContextTest}, since that validation
+ * happens before any connection is touched; this class only needs to verify the actual DB
+ * round-trip.
  */
 class ExecutionContextIT extends AbstractDatabaseIT {
 
@@ -37,7 +38,7 @@ class ExecutionContextIT extends AbstractDatabaseIT {
   @Test
   void executeBatchAppliesUpdatesInOrder() throws Exception {
     try (var conn = openConnection()) {
-      TransactionContext context = TransactionContext.of(conn);
+      ConnectionExecutionContext context = new ConnectionExecutionContext(conn);
       List<Integer> result =
           context.executeBatch(
               List.of(

@@ -40,22 +40,21 @@ final class TransactionExecutor {
 
     Telemetry.TransactionOperationHandle operation =
         telemetry.startTransactionOperation(settings, maxAttempts, parentSpan);
-    TransactionContext ctx = TransactionContext.of(connection);
-    boolean originalAutoCommit = ctx.getAutoCommit();
-    int originalIsolation = ctx.getTransactionIsolation();
-    boolean originalReadOnly = ctx.isReadOnly();
+    boolean originalAutoCommit = connection.getAutoCommit();
+    int originalIsolation = connection.getTransactionIsolation();
+    boolean originalReadOnly = connection.isReadOnly();
 
-    ctx.setAutoCommit(false);
-    ctx.setTransactionIsolation(settings.isolationLevel().jdbcLevel());
-    ctx.setReadOnly(settings.readOnly());
+    connection.setAutoCommit(false);
+    connection.setTransactionIsolation(settings.isolationLevel().jdbcLevel());
+    connection.setReadOnly(settings.readOnly());
 
     try (var scope = operation.span().makeCurrent()) {
-      return runAttempts(transaction, maxAttempts, ctx, operation);
+      return runAttempts(transaction, maxAttempts, connection, operation);
     } finally {
       try {
-        ctx.setAutoCommit(originalAutoCommit);
-        ctx.setTransactionIsolation(originalIsolation);
-        ctx.setReadOnly(originalReadOnly);
+        connection.setAutoCommit(originalAutoCommit);
+        connection.setTransactionIsolation(originalIsolation);
+        connection.setReadOnly(originalReadOnly);
       } catch (SQLException ignoredRestoreFailure) {
         // best-effort restore; the primary outcome (success or the original failure) already
         // determined what propagates out of runAttempts
@@ -67,20 +66,21 @@ final class TransactionExecutor {
   private <R> R runAttempts(
       Transaction<R> transaction,
       int maxAttempts,
-      TransactionContext ctx,
+      Connection connection,
       Telemetry.TransactionOperationHandle operation)
       throws SQLException {
-    ExecutionContext instrumentedContext = new NestedExecutionContext(ctx, operation.span());
+    ExecutionContext instrumentedContext =
+        new NestedExecutionContext(new ConnectionExecutionContext(connection), operation.span());
     for (int attempt = 1; ; attempt++) {
       long attemptStart = System.nanoTime();
       try {
         R result = transaction.run(instrumentedContext);
-        ctx.commit();
+        connection.commit();
         operation.finish(attempt, Telemetry.Outcome.SUCCEEDED, null);
         return result;
       } catch (Exception e) {
         try {
-          ctx.rollback();
+          connection.rollback();
         } catch (SQLException suppressed) {
           e.addSuppressed(suppressed);
         }
@@ -105,14 +105,14 @@ final class TransactionExecutor {
   }
 
   /**
-   * Executes statements directly against the connection, one single-attempt CLIENT span each, no
-   * statement-level retry.
+   * Executes statements against a delegate {@link ExecutionContext}, wrapping each in one
+   * single-attempt CLIENT span; no statement-level retry.
    */
   private final class NestedExecutionContext implements ExecutionContext {
-    private final TransactionContext delegate;
+    private final ExecutionContext delegate;
     private final Span transactionSpan;
 
-    NestedExecutionContext(TransactionContext delegate, Span transactionSpan) {
+    NestedExecutionContext(ExecutionContext delegate, Span transactionSpan) {
       this.delegate = delegate;
       this.transactionSpan = transactionSpan;
     }

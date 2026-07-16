@@ -9,7 +9,7 @@ import java.util.Objects;
 import java.util.function.Function;
 
 /**
- * A unit of work run atomically against a {@link TransactionContext}.
+ * A unit of work run atomically against an {@link ExecutionContext}.
  *
  * <p><b>Bodies must be pure database logic.</b> The session-side retry loop may re-execute {@link
  * #run} any number of times on a fresh attempt after a retryable failure, so a transaction body

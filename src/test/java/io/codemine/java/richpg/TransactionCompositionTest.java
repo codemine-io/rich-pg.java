@@ -79,7 +79,7 @@ class TransactionCompositionTest {
 
   @Test
   void firstOfRunsFirstSuccessfulAlternative() throws SQLException {
-    TransactionContext ctx = mock(TransactionContext.class);
+    ExecutionContext ctx = mock(ExecutionContext.class);
     when(ctx.setSavepoint()).thenReturn(mock(Savepoint.class));
     Transaction<String> failing =
         c -> {
@@ -96,7 +96,7 @@ class TransactionCompositionTest {
 
   @Test
   void orRethrowsSerializationFailureUntouched() throws SQLException {
-    TransactionContext ctx = mock(TransactionContext.class);
+    ExecutionContext ctx = mock(ExecutionContext.class);
     when(ctx.setSavepoint()).thenReturn(mock(Savepoint.class));
     Transaction<String> failing =
         c -> {
@@ -111,7 +111,7 @@ class TransactionCompositionTest {
 
   @Test
   void orFallsBackOnUniqueViolation() throws SQLException {
-    TransactionContext ctx = mock(TransactionContext.class);
+    ExecutionContext ctx = mock(ExecutionContext.class);
     when(ctx.setSavepoint()).thenReturn(mock(Savepoint.class));
     Transaction<String> failing =
         c -> {
