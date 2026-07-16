@@ -8,17 +8,15 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.RecordComponent;
 import java.time.Duration;
+import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 
 class SessionSettingsTest {
 
   private static SessionSettings defaults() {
     return SessionSettings.defaults("jdbc:postgresql://localhost/test", "user", "pw");
-  }
-
-  private static SessionSettings base() {
-    return defaults();
   }
 
   @Test
@@ -134,134 +132,83 @@ class SessionSettingsTest {
 
   @Test
   void healthCheckTimeoutMustNotBeNegative() {
-    assertThatThrownBy(() -> base().withHealthCheckTimeout(Duration.ofSeconds(-1)))
+    assertThatThrownBy(() -> defaults().withHealthCheckTimeout(Duration.ofSeconds(-1)))
         .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
   void closeDrainDeadlineMustNotBeNegative() {
-    assertThatThrownBy(() -> base().withCloseDrainDeadline(Duration.ofSeconds(-1)))
+    assertThatThrownBy(() -> defaults().withCloseDrainDeadline(Duration.ofSeconds(-1)))
         .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
-  void withersPreserveEveryOtherField() {
-    var tweaked = defaults().withMaximumPoolSize(42);
-    var expected =
-        new SessionSettings(
-            "jdbc:postgresql://localhost/test",
-            "user",
-            "pw",
-            42,
-            Duration.ofSeconds(30),
-            Duration.ofSeconds(30),
-            3,
-            Duration.ofSeconds(1),
-            Duration.ofSeconds(2),
-            Duration.ofSeconds(10),
-            tweaked.openTelemetry(),
-            "io.codemine.java.rich-pg",
-            "1.0.0",
-            "rich-pg-pool",
-            "rich-pg");
-
-    assertEquals(expected, tweaked);
+  void withMaximumPoolSizePreservesEveryOtherField() {
+    assertWitherChangesOnlyOneField(
+        s -> s.withMaximumPoolSize(42), "maximumPoolSize", SessionSettings::maximumPoolSize, 42);
   }
 
   @Test
   void withScopeNamePreservesEveryOtherField() {
-    var tweaked = defaults().withScopeName("io.pgenie.artifacts.myspace.musiccatalogue");
-    var expected =
-        new SessionSettings(
-            "jdbc:postgresql://localhost/test",
-            "user",
-            "pw",
-            10,
-            Duration.ofSeconds(30),
-            Duration.ofSeconds(30),
-            3,
-            Duration.ofSeconds(1),
-            Duration.ofSeconds(2),
-            Duration.ofSeconds(10),
-            tweaked.openTelemetry(),
-            "io.pgenie.artifacts.myspace.musiccatalogue",
-            "1.0.0",
-            "rich-pg-pool",
-            "rich-pg");
-
-    assertEquals(expected, tweaked);
+    assertWitherChangesOnlyOneField(
+        s -> s.withScopeName("io.pgenie.artifacts.myspace.musiccatalogue"),
+        "scopeName",
+        SessionSettings::scopeName,
+        "io.pgenie.artifacts.myspace.musiccatalogue");
   }
 
   @Test
   void withScopeVersionPreservesEveryOtherField() {
-    var tweaked = defaults().withScopeVersion("1.0.1");
-    var expected =
-        new SessionSettings(
-            "jdbc:postgresql://localhost/test",
-            "user",
-            "pw",
-            10,
-            Duration.ofSeconds(30),
-            Duration.ofSeconds(30),
-            3,
-            Duration.ofSeconds(1),
-            Duration.ofSeconds(2),
-            Duration.ofSeconds(10),
-            tweaked.openTelemetry(),
-            "io.codemine.java.rich-pg",
-            "1.0.1",
-            "rich-pg-pool",
-            "rich-pg");
-
-    assertEquals(expected, tweaked);
+    assertWitherChangesOnlyOneField(
+        s -> s.withScopeVersion("1.0.1"), "scopeVersion", SessionSettings::scopeVersion, "1.0.1");
   }
 
   @Test
   void withPoolNamePreservesEveryOtherField() {
-    var tweaked = defaults().withPoolName("music-catalogue-pool");
-    var expected =
-        new SessionSettings(
-            "jdbc:postgresql://localhost/test",
-            "user",
-            "pw",
-            10,
-            Duration.ofSeconds(30),
-            Duration.ofSeconds(30),
-            3,
-            Duration.ofSeconds(1),
-            Duration.ofSeconds(2),
-            Duration.ofSeconds(10),
-            tweaked.openTelemetry(),
-            "io.codemine.java.rich-pg",
-            "1.0.0",
-            "music-catalogue-pool",
-            "rich-pg");
-
-    assertEquals(expected, tweaked);
+    assertWitherChangesOnlyOneField(
+        s -> s.withPoolName("music-catalogue-pool"),
+        "poolName",
+        SessionSettings::poolName,
+        "music-catalogue-pool");
   }
 
   @Test
   void withArtifactNamePreservesEveryOtherField() {
-    var tweaked = defaults().withArtifactName("music-catalogue");
-    var expected =
-        new SessionSettings(
-            "jdbc:postgresql://localhost/test",
-            "user",
-            "pw",
-            10,
-            Duration.ofSeconds(30),
-            Duration.ofSeconds(30),
-            3,
-            Duration.ofSeconds(1),
-            Duration.ofSeconds(2),
-            Duration.ofSeconds(10),
-            tweaked.openTelemetry(),
-            "io.codemine.java.rich-pg",
-            "1.0.0",
-            "rich-pg-pool",
-            "music-catalogue");
+    assertWitherChangesOnlyOneField(
+        s -> s.withArtifactName("music-catalogue"),
+        "artifactName",
+        SessionSettings::artifactName,
+        "music-catalogue");
+  }
 
-    assertEquals(expected, tweaked);
+  /**
+   * Applies {@code wither} to {@link #defaults()} and asserts that only the record component named
+   * {@code changedComponent} differs from the original, and that it now equals {@code
+   * expectedNewValue}. Every other record component (checked via reflection, so newly added fields
+   * are covered automatically) must be unchanged.
+   */
+  private static void assertWitherChangesOnlyOneField(
+      Function<SessionSettings, SessionSettings> wither,
+      String changedComponent,
+      Function<SessionSettings, Object> getter,
+      Object expectedNewValue) {
+    SessionSettings original = defaults();
+    SessionSettings tweaked = wither.apply(original);
+
+    assertEquals(expectedNewValue, getter.apply(tweaked));
+
+    for (RecordComponent component : SessionSettings.class.getRecordComponents()) {
+      if (component.getName().equals(changedComponent)) {
+        continue;
+      }
+      try {
+        Object originalValue = component.getAccessor().invoke(original);
+        Object tweakedValue = component.getAccessor().invoke(tweaked);
+        assertEquals(originalValue, tweakedValue, "field " + component.getName() + " changed");
+      } catch (ReflectiveOperationException e) {
+        throw new AssertionError(e);
+      }
+    }
   }
 
   @Test
