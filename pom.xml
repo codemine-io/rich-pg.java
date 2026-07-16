@@ -51,12 +51,19 @@
         <maven.compiler.target>21</maven.compiler.target>
     </properties>
 
+    <repositories>
+        <repository>
+            <id>jitpack.io</id>
+            <url>https://jitpack.io</url>
+        </repository>
+    </repositories>
+
     <dependencies>
         <!-- Main dependencies -->
         <dependency>
-            <groupId>io.codemine.java.postgresql</groupId>
-            <artifactId>jdbc</artifactId>
-            <version>0.6.0</version>
+            <groupId>com.github.codemine-io</groupId>
+            <artifactId>postgresql-jdbc.java</artifactId>
+            <version>1867b067aad88dc08bbcc5e6418567fb9b225ab9</version>
         </dependency>
 
         <dependency>
