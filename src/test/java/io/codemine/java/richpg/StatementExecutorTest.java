@@ -58,7 +58,7 @@ class StatementExecutorTest {
     Connection connection = Mockito.mock(Connection.class);
 
     String result =
-        new StatementExecutor(telemetry).execute(statement, 3, () -> connection, Span.getInvalid());
+        StatementExecutor.execute(telemetry, statement, 3, () -> connection, Span.getInvalid());
 
     assertThat(result).isEqualTo("ok");
     var span = exporter.getFinishedSpanItems().get(0);
@@ -86,7 +86,7 @@ class StatementExecutorTest {
     Deque<Connection> supplied = new ArrayDeque<>(java.util.List.of(connection));
 
     String result =
-        new StatementExecutor(telemetry).execute(statement, 3, supplied::poll, Span.getInvalid());
+        StatementExecutor.execute(telemetry, statement, 3, supplied::poll, Span.getInvalid());
 
     assertThat(result).isEqualTo("ok");
     // The same connection is reused across attempts (same-connection retry strategy), and closed
@@ -106,7 +106,7 @@ class StatementExecutorTest {
         new ArrayDeque<>(java.util.List.of(failingConnection, freshConnection));
 
     String result =
-        new StatementExecutor(telemetry).execute(statement, 3, supplied::poll, Span.getInvalid());
+        StatementExecutor.execute(telemetry, statement, 3, supplied::poll, Span.getInvalid());
 
     assertThat(result).isEqualTo("ok");
     Mockito.verify(failingConnection).close();
@@ -120,8 +120,8 @@ class StatementExecutorTest {
 
     assertThatThrownBy(
             () ->
-                new StatementExecutor(telemetry)
-                    .execute(statement, 3, () -> connection, Span.getInvalid()))
+                StatementExecutor.execute(
+                    telemetry, statement, 3, () -> connection, Span.getInvalid()))
         .isInstanceOf(SQLException.class);
     var span = exporter.getFinishedSpanItems().get(0);
     assertThat(
@@ -139,8 +139,8 @@ class StatementExecutorTest {
 
     assertThatThrownBy(
             () ->
-                new StatementExecutor(telemetry)
-                    .execute(statement, 2, () -> connection, Span.getInvalid()))
+                StatementExecutor.execute(
+                    telemetry, statement, 2, () -> connection, Span.getInvalid()))
         .isInstanceOf(SQLException.class);
     var span = exporter.getFinishedSpanItems().get(0);
     assertThat(

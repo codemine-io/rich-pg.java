@@ -88,9 +88,8 @@ public class Session implements AutoCloseable {
     ensureOpen();
     Objects.requireNonNull(statement, "statement");
 
-    StatementExecutor executor = new StatementExecutor(telemetry);
-    return executor.execute(
-        statement, settings.retryAttempts(), dataSource::getConnection, parentSpan);
+    return StatementExecutor.execute(
+        telemetry, statement, settings.retryAttempts(), dataSource::getConnection, parentSpan);
   }
 
   /**

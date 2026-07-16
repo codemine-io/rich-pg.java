@@ -17,29 +17,28 @@ import java.util.Objects;
  */
 final class StatementExecutor {
 
-  private final Telemetry telemetry;
+  private StatementExecutor() {}
 
-  StatementExecutor(Telemetry telemetry) {
-    this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
-  }
-
-  <R> R execute(
+  static <R> R execute(
+      Telemetry telemetry,
       Statement<R> statement,
       int maxAttempts,
       ConnectionSupplier connectionSupplier,
       Span parentSpan)
       throws SQLException {
+    Objects.requireNonNull(telemetry, "telemetry");
     Objects.requireNonNull(statement, "statement");
     Objects.requireNonNull(connectionSupplier, "connectionSupplier");
 
     Telemetry.StatementOperationHandle operation =
         telemetry.startStatementOperation(statement, maxAttempts, parentSpan);
     try (var scope = operation.span().makeCurrent()) {
-      return runAttempts(statement, maxAttempts, connectionSupplier, operation);
+      return runAttempts(telemetry, statement, maxAttempts, connectionSupplier, operation);
     }
   }
 
-  private <R> R runAttempts(
+  private static <R> R runAttempts(
+      Telemetry telemetry,
       Statement<R> statement,
       int maxAttempts,
       ConnectionSupplier connectionSupplier,
