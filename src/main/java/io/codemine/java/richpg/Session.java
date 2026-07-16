@@ -24,10 +24,12 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Instances are thread-safe; concurrent calls are supported. {@link #close()} is idempotent.
  *
- * <p>TODO(Tasks 4-6): this class is in an intermediate state. {@link #executeRetryable} and {@link
- * #executeTransaction} currently delegate to temporary compiling stubs ({@link StatementExecutor},
- * {@link TransactionExecutor}) that do not yet retry or record telemetry; the full rewrite lands in
- * later tasks of the design-revision plan.
+ * <p>{@link #execute} always retries per {@link SqlStateClassifier}, up to {@link
+ * SessionSettings#retryAttempts()} attempts; there is no non-retrying entry point.
+ *
+ * <p>TODO(Task 6): {@link #executeTransaction} currently delegates to a temporary compiling stub
+ * ({@link TransactionExecutor}) that does not yet retry or record telemetry; the full rewrite lands
+ * in a later task of the design-revision plan.
  */
 public class Session implements AutoCloseable {
 
@@ -55,101 +57,44 @@ public class Session implements AutoCloseable {
   }
 
   /**
-   * Execute any generated statement record.
+   * Execute any generated statement record, retrying it when it is declared {@link
+   * Statement#idempotent() idempotent} and the failure is safe to retry.
    *
    * <p>The statement is run on a connection borrowed from the internal pool. The statement span is
-   * parented to the current OpenTelemetry span, if any. Any {@link SQLException} is propagated to
-   * the caller.
+   * parented to the current OpenTelemetry span, if any. SQLSTATE {@code 40001}/{@code 40P01}/{@code
+   * 23505} are retried on the same connection regardless of idempotency, while SQLSTATE class
+   * {@code 08} is retried on a freshly borrowed connection only when the statement is idempotent.
+   * Retries are bounded by {@link SessionSettings#retryAttempts()}. Any {@link SQLException} from
+   * the final attempt is propagated to the caller.
    *
    * @param statement the statement to execute
    * @return the decoded statement result
-   * @throws SQLException if a database access error occurs
+   * @throws SQLException if every attempt fails, or if the first failure is not retryable
    */
   public <R> R execute(Statement<R> statement) throws SQLException {
     return execute(statement, Span.current());
   }
 
   /**
-   * Execute any generated statement record with an explicit parent span.
+   * Execute any generated statement record with an explicit parent span, retrying it when it is
+   * declared {@link Statement#idempotent() idempotent} and the failure is safe to retry.
    *
    * <p>The statement is run on a connection borrowed from the internal pool. The emitted statement
-   * span will be a child of the supplied {@code parentSpan}. Any {@link SQLException} is propagated
-   * to the caller.
+   * span will be a child of the supplied {@code parentSpan}. See {@link #execute(Statement)} for
+   * the retry rules. Any {@link SQLException} from the final attempt is propagated to the caller.
    *
    * @param statement the statement to execute
    * @param parentSpan the parent span for the statement trace
    * @return the decoded statement result
-   * @throws SQLException if a database access error occurs
+   * @throws SQLException if every attempt fails, or if the first failure is not retryable
    */
   public <R> R execute(Statement<R> statement, Span parentSpan) throws SQLException {
     ensureOpen();
     Objects.requireNonNull(statement, "statement");
 
-    try (Connection connection = dataSource.getConnection()) {
-      Telemetry.StatementHandle handle = telemetry.startStatement(statement, parentSpan);
-      try {
-        R result = statement.execute(connection);
-        handle.succeeded();
-        return result;
-      } catch (SQLException e) {
-        handle.failed(e);
-        throw e;
-      }
-    }
-  }
-
-  /**
-   * Execute a statement outside of a transaction, retrying it with default settings when it is
-   * declared {@link Statement#idempotent() idempotent} and the failure is safe to retry.
-   *
-   * <p>The statement span is parented to the current OpenTelemetry span, if any.
-   *
-   * @param statement the statement to execute
-   * @return the decoded statement result
-   * @throws SQLException if every attempt fails, or if the first failure is not retryable
-   */
-  public <R> R executeRetryable(Statement<R> statement) throws SQLException {
-    return executeRetryable(statement, StatementSettings.DEFAULT, Span.current());
-  }
-
-  /**
-   * Execute a statement outside of a transaction with the supplied retry settings.
-   *
-   * <p>The statement span is parented to the current OpenTelemetry span, if any.
-   *
-   * @param statement the statement to execute
-   * @param settings the statement settings
-   * @return the decoded statement result
-   * @throws SQLException if every attempt fails, or if the first failure is not retryable
-   */
-  public <R> R executeRetryable(Statement<R> statement, StatementSettings settings)
-      throws SQLException {
-    return executeRetryable(statement, settings, Span.current());
-  }
-
-  /**
-   * Execute a statement outside of a transaction with the supplied retry settings and an explicit
-   * parent span.
-   *
-   * <p>Retries the statement when it is declared {@link Statement#idempotent() idempotent} and the
-   * failure is safe to retry: SQLSTATE {@code 40001}/{@code 40P01} are retried on the same
-   * connection regardless of idempotency, while SQLSTATE class {@code 08} is retried on a freshly
-   * borrowed connection only when the statement is idempotent.
-   *
-   * @param statement the statement to execute
-   * @param settings the statement settings
-   * @param parentSpan the parent span for the statement retry trace
-   * @return the decoded statement result
-   * @throws SQLException if every attempt fails, or if the first failure is not retryable
-   */
-  public <R> R executeRetryable(Statement<R> statement, StatementSettings settings, Span parentSpan)
-      throws SQLException {
-    ensureOpen();
-    Objects.requireNonNull(statement, "statement");
-    Objects.requireNonNull(settings, "settings");
-
     StatementExecutor executor = new StatementExecutor(telemetry);
-    return executor.execute(statement, dataSource::getConnection, parentSpan);
+    return executor.execute(
+        statement, config.retryAttempts(), dataSource::getConnection, parentSpan);
   }
 
   /**

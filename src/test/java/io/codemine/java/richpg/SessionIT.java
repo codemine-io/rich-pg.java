@@ -11,7 +11,6 @@ import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.metrics.SdkMeterProvider;
-import io.opentelemetry.sdk.metrics.data.HistogramPointData;
 import io.opentelemetry.sdk.metrics.data.MetricData;
 import io.opentelemetry.sdk.testing.exporter.InMemoryMetricReader;
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
@@ -21,9 +20,7 @@ import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.Collection;
 import java.util.List;
-import java.util.NoSuchElementException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -31,14 +28,6 @@ class SessionIT extends AbstractDatabaseIT {
 
   private static final AttributeKey<String> DB_SYSTEM_NAME_KEY =
       AttributeKey.stringKey("db.system.name");
-  private static final AttributeKey<String> STATEMENT_NAME_KEY =
-      AttributeKey.stringKey("pgenie.statement.name");
-  private static final AttributeKey<String> DB_OPERATION_NAME_KEY =
-      AttributeKey.stringKey("db.operation.name");
-  private static final AttributeKey<String> DB_COLLECTION_NAME_KEY =
-      AttributeKey.stringKey("db.collection.name");
-  private static final AttributeKey<String> DB_QUERY_TEXT_KEY =
-      AttributeKey.stringKey("db.query.text");
   private static final AttributeKey<Long> ATTEMPT_COUNT_KEY =
       AttributeKey.longKey("pgenie.transaction.attempt_count");
   private static final AttributeKey<String> OUTCOME_KEY =
@@ -73,7 +62,7 @@ class SessionIT extends AbstractDatabaseIT {
   }
 
   @Test
-  void executeEmitsStatementSpanAndDurationMetric() throws SQLException {
+  void executeEmitsStatementOperationSpan() throws SQLException {
     SessionSettings config = config();
     try (Session session = new Session(config)) {
       String result = session.execute(new SelectOneStatement());
@@ -82,19 +71,15 @@ class SessionIT extends AbstractDatabaseIT {
 
     flush();
 
+    // Per design-revision §3.1, a standalone statement's telemetry is a single CLIENT operation
+    // span covering all attempts; there is no more per-attempt leaf span nor duration metric.
     SpanData span = singleSpanNamed("SelectOneStatement");
     assertEquals(SpanKind.CLIENT, span.getKind());
     assertEquals(StatusCode.OK, span.getStatus().getStatusCode());
     assertEquals("postgresql", span.getAttributes().get(DB_SYSTEM_NAME_KEY));
-    assertEquals("SelectOneStatement", span.getAttributes().get(STATEMENT_NAME_KEY));
-    assertEquals("SELECT", span.getAttributes().get(DB_OPERATION_NAME_KEY));
-    assertEquals("system", span.getAttributes().get(DB_COLLECTION_NAME_KEY));
-    assertEquals("select 1", span.getAttributes().get(DB_QUERY_TEXT_KEY));
-
-    HistogramPointData point = singleDurationPoint();
-    assertEquals("SelectOneStatement", point.getAttributes().get(STATEMENT_NAME_KEY));
-    assertEquals("SELECT", point.getAttributes().get(DB_OPERATION_NAME_KEY));
-    assertEquals("system", point.getAttributes().get(DB_COLLECTION_NAME_KEY));
+    assertEquals(1L, span.getAttributes().get(STATEMENT_ATTEMPT_COUNT_KEY));
+    assertEquals("succeeded", span.getAttributes().get(STATEMENT_OUTCOME_KEY));
+    assertEquals(0, childSpansOf(span).size(), "expected no nested statement span");
   }
 
   @Test
@@ -116,29 +101,6 @@ class SessionIT extends AbstractDatabaseIT {
     assertEquals("committed", transactionSpan.getAttributes().get(OUTCOME_KEY));
 
     List<SpanData> childSpans = childSpansOf(transactionSpan);
-    assertEquals(1, childSpans.size(), "expected one nested statement span");
-    assertEquals("SelectOneStatement", childSpans.get(0).getName());
-    assertEquals(SpanKind.CLIENT, childSpans.get(0).getKind());
-  }
-
-  @Test
-  void executeRetryableEmitsRetrySpanWithNestedStatementSpanOnSuccess() throws SQLException {
-    SessionSettings config = config();
-    try (Session session = new Session(config)) {
-      String result = session.executeRetryable(new SelectOneStatement());
-      assertEquals("one", result);
-    }
-
-    flush();
-
-    SpanData retrySpan = singleSpanNamed("statement.retry");
-    assertEquals(SpanKind.INTERNAL, retrySpan.getKind());
-    assertEquals(StatusCode.OK, retrySpan.getStatus().getStatusCode());
-    assertEquals("postgresql", retrySpan.getAttributes().get(DB_SYSTEM_NAME_KEY));
-    assertEquals(1L, retrySpan.getAttributes().get(STATEMENT_ATTEMPT_COUNT_KEY));
-    assertEquals("succeeded", retrySpan.getAttributes().get(STATEMENT_OUTCOME_KEY));
-
-    List<SpanData> childSpans = childSpansOf(retrySpan);
     assertEquals(1, childSpans.size(), "expected one nested statement span");
     assertEquals("SelectOneStatement", childSpans.get(0).getName());
     assertEquals(SpanKind.CLIENT, childSpans.get(0).getKind());
@@ -201,19 +163,6 @@ class SessionIT extends AbstractDatabaseIT {
     return spanExporter.getFinishedSpanItems().stream()
         .filter(span -> parentSpanId.equals(span.getParentSpanId()))
         .toList();
-  }
-
-  private HistogramPointData singleDurationPoint() {
-    Collection<MetricData> metrics = metricReader.collectAllMetrics();
-    MetricData metric =
-        metrics.stream()
-            .filter(m -> "db.client.operation.duration".equals(m.getName()))
-            .findFirst()
-            .orElseThrow(
-                () -> new NoSuchElementException("Missing db.client.operation.duration metric"));
-    Collection<HistogramPointData> points = metric.getHistogramData().getPoints();
-    assertEquals(1, points.size(), points::toString);
-    return points.iterator().next();
   }
 
   private List<MetricData> poolGaugeMetrics() {
