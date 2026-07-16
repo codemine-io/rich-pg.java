@@ -30,9 +30,9 @@ final class StatementExecutor {
     Objects.requireNonNull(statement, "statement");
     Objects.requireNonNull(connectionSupplier, "connectionSupplier");
 
-    Telemetry.StatementOperationHandle operation =
-        telemetry.startStatementOperation(statement, maxAttempts, parentSpan);
-    try (var scope = operation.span().makeCurrent()) {
+    try (Telemetry.StatementOperationHandle operation =
+            telemetry.startStatementOperation(statement, maxAttempts, parentSpan);
+        var scope = operation.span().makeCurrent()) {
       return runAttempts(telemetry, statement, maxAttempts, connectionSupplier, operation);
     }
   }

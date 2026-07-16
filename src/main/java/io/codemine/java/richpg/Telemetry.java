@@ -363,7 +363,7 @@ final class Telemetry {
   }
 
   /** A started standalone-statement operation span plus what's needed to finish it. */
-  final class StatementOperationHandle {
+  final class StatementOperationHandle implements AutoCloseable {
     private final Span span;
     private final String statementName;
     private final long startNanos = System.nanoTime();
@@ -388,6 +388,10 @@ final class Telemetry {
           outcomeLabel,
           failure);
       logIfExhausted(statementName, outcome, attempts, failure);
+    }
+
+    @Override
+    public void close() {
       Duration duration = Duration.ofNanos(System.nanoTime() - startNanos);
       recordDuration(
           duration, Attributes.of(DB_SYSTEM_NAME, DB_SYSTEM, STATEMENT_NAME, statementName));
@@ -415,12 +419,12 @@ final class Telemetry {
   }
 
   /**
-   * A started transaction operation span plus what's needed to finish it. Unlike {@link
-   * StatementOperationHandle}, {@link #finish} does not end the span: the executor's
-   * connection-state restore must run first so it stays inside the span's duration, then the
-   * executor ends the span itself.
+   * A started transaction operation span plus what's needed to finish it. {@link #finish} records
+   * outcome attributes; {@link #close} records the duration and ends the span. The executor
+   * restores connection state between the two, inside the try-with-resources block, so the restore
+   * stays within the span's duration.
    */
-  final class TransactionOperationHandle {
+  final class TransactionOperationHandle implements AutoCloseable {
     private final Span span;
     private final long startNanos = System.nanoTime();
 
@@ -445,7 +449,8 @@ final class Telemetry {
       logIfExhausted("Transaction", outcome, attempts, failure);
     }
 
-    void recordDurationAndEnd() {
+    @Override
+    public void close() {
       Duration duration = Duration.ofNanos(System.nanoTime() - startNanos);
       recordDuration(duration, Attributes.of(DB_SYSTEM_NAME, DB_SYSTEM));
       logIfSlow("transaction", duration);

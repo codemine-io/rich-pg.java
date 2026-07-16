@@ -36,28 +36,27 @@ final class TransactionExecutor {
     Objects.requireNonNull(settings, "settings");
     Objects.requireNonNull(connection, "connection");
 
-    Telemetry.TransactionOperationHandle operation =
-        telemetry.startTransactionOperation(settings, maxAttempts, parentSpan);
-    boolean originalAutoCommit = connection.getAutoCommit();
-    int originalIsolation = connection.getTransactionIsolation();
-    boolean originalReadOnly = connection.isReadOnly();
+    try (Telemetry.TransactionOperationHandle operation =
+        telemetry.startTransactionOperation(settings, maxAttempts, parentSpan)) {
+      boolean originalAutoCommit = connection.getAutoCommit();
+      int originalIsolation = connection.getTransactionIsolation();
+      boolean originalReadOnly = connection.isReadOnly();
 
-    connection.setAutoCommit(false);
-    connection.setTransactionIsolation(settings.isolationLevel().jdbcLevel());
-    connection.setReadOnly(settings.readOnly());
+      connection.setAutoCommit(false);
+      connection.setTransactionIsolation(settings.isolationLevel().jdbcLevel());
+      connection.setReadOnly(settings.readOnly());
 
-    try (var scope = operation.span().makeCurrent()) {
-      return runAttempts(telemetry, transaction, maxAttempts, connection, operation);
-    } finally {
-      try {
-        connection.setAutoCommit(originalAutoCommit);
-        connection.setTransactionIsolation(originalIsolation);
-        connection.setReadOnly(originalReadOnly);
-      } catch (SQLException ignoredRestoreFailure) {
-        // best-effort restore; the primary outcome (success or the original failure) already
-        // determined what propagates out of runAttempts
+      try (var scope = operation.span().makeCurrent()) {
+        return runAttempts(telemetry, transaction, maxAttempts, connection, operation);
+      } finally {
+        try {
+          connection.setAutoCommit(originalAutoCommit);
+          connection.setTransactionIsolation(originalIsolation);
+          connection.setReadOnly(originalReadOnly);
+        } catch (SQLException ignoredRestoreFailure) {
+          // best-effort restore; the primary outcome already determined what propagates
+        }
       }
-      operation.recordDurationAndEnd();
     }
   }
 
