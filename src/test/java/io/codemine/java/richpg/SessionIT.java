@@ -139,6 +139,47 @@ class SessionIT extends AbstractDatabaseIT {
     assertTrue(poolGaugeMetrics().isEmpty(), "pool gauges should be unregistered after close");
   }
 
+  @Test
+  void transactionRetryProducesNewStatementSpansPerAttemptUnderOneTransactionSpan()
+      throws SQLException {
+    SessionSettings config = config();
+    java.util.concurrent.atomic.AtomicInteger calls =
+        new java.util.concurrent.atomic.AtomicInteger();
+    try (Session session = new Session(config)) {
+      session.executeTransaction(
+          ctx -> {
+            ctx.execute(new SelectOneStatement());
+            if (calls.getAndIncrement() == 0) {
+              throw new SQLException("conflict", "40001");
+            }
+            return null;
+          });
+    }
+
+    flush();
+
+    SpanData transactionSpan = singleSpanNamed("transaction");
+    assertEquals(SpanKind.INTERNAL, transactionSpan.getKind());
+    assertEquals(StatusCode.OK, transactionSpan.getStatus().getStatusCode());
+    assertEquals(2L, transactionSpan.getAttributes().get(ATTEMPT_COUNT_KEY));
+    assertEquals("committed", transactionSpan.getAttributes().get(OUTCOME_KEY));
+
+    List<SpanData> childSpans = childSpansOf(transactionSpan);
+    assertEquals(2, childSpans.size(), "expected one statement span per attempt, as siblings");
+    for (SpanData child : childSpans) {
+      assertEquals("SelectOneStatement", child.getName());
+      assertEquals(SpanKind.CLIENT, child.getKind());
+    }
+
+    List<SpanData> allSpans = spanExporter.getFinishedSpanItems();
+    long transactionSpanCount =
+        allSpans.stream().filter(s -> "transaction".equals(s.getName())).count();
+    long statementSpanCount =
+        allSpans.stream().filter(s -> SpanKind.CLIENT.equals(s.getKind())).count();
+    assertEquals(1, transactionSpanCount);
+    assertEquals(2, statementSpanCount, "expected one CLIENT statement span per attempt");
+  }
+
   private SessionSettings config() {
     return SessionSettings.defaults(PG.getJdbcUrl(), PG.getUsername(), PG.getPassword())
         .withOpenTelemetry(openTelemetry);
