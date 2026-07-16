@@ -21,19 +21,17 @@ import java.util.Objects;
  */
 final class TransactionExecutor {
 
-  private final Telemetry telemetry;
+  private TransactionExecutor() {}
 
-  TransactionExecutor(Telemetry telemetry) {
-    this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
-  }
-
-  <R> R execute(
+  static <R> R execute(
+      Telemetry telemetry,
       Transaction<R> transaction,
       TransactionSettings settings,
       int maxAttempts,
       Connection connection,
       Span parentSpan)
       throws SQLException {
+    Objects.requireNonNull(telemetry, "telemetry");
     Objects.requireNonNull(transaction, "transaction");
     Objects.requireNonNull(settings, "settings");
     Objects.requireNonNull(connection, "connection");
@@ -49,7 +47,7 @@ final class TransactionExecutor {
     connection.setReadOnly(settings.readOnly());
 
     try (var scope = operation.span().makeCurrent()) {
-      return runAttempts(transaction, maxAttempts, connection, operation);
+      return runAttempts(telemetry, transaction, maxAttempts, connection, operation);
     } finally {
       try {
         connection.setAutoCommit(originalAutoCommit);
@@ -63,14 +61,16 @@ final class TransactionExecutor {
     }
   }
 
-  private <R> R runAttempts(
+  private static <R> R runAttempts(
+      Telemetry telemetry,
       Transaction<R> transaction,
       int maxAttempts,
       Connection connection,
       Telemetry.TransactionOperationHandle operation)
       throws SQLException {
     ExecutionContext instrumentedContext =
-        new NestedExecutionContext(new ConnectionExecutionContext(connection), operation.span());
+        new NestedExecutionContext(
+            telemetry, new ConnectionExecutionContext(connection), operation.span());
     for (int attempt = 1; ; attempt++) {
       long attemptStart = System.nanoTime();
       try {
@@ -108,11 +108,13 @@ final class TransactionExecutor {
    * Executes statements against a delegate {@link ExecutionContext}, wrapping each in one
    * single-attempt CLIENT span; no statement-level retry.
    */
-  private final class NestedExecutionContext implements ExecutionContext {
+  private static final class NestedExecutionContext implements ExecutionContext {
+    private final Telemetry telemetry;
     private final ExecutionContext delegate;
     private final Span transactionSpan;
 
-    NestedExecutionContext(ExecutionContext delegate, Span transactionSpan) {
+    NestedExecutionContext(Telemetry telemetry, ExecutionContext delegate, Span transactionSpan) {
+      this.telemetry = telemetry;
       this.delegate = delegate;
       this.transactionSpan = transactionSpan;
     }

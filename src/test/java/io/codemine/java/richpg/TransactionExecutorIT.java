@@ -18,13 +18,13 @@ class TransactionExecutorIT extends AbstractDatabaseIT {
     Telemetry telemetry = telemetryWith(exporter);
     try (Connection connection = dataSource().getConnection()) {
       String result =
-          new TransactionExecutor(telemetry)
-              .execute(
-                  ctx -> "ok",
-                  TransactionSettings.SERIALIZABLE_WRITE,
-                  3,
-                  connection,
-                  Span.getInvalid());
+          TransactionExecutor.execute(
+              telemetry,
+              ctx -> "ok",
+              TransactionSettings.SERIALIZABLE_WRITE,
+              3,
+              connection,
+              Span.getInvalid());
       assertThat(result).isEqualTo("ok");
     }
     var span =
@@ -60,9 +60,13 @@ class TransactionExecutorIT extends AbstractDatabaseIT {
         };
     try (Connection connection = dataSource().getConnection()) {
       String result =
-          new TransactionExecutor(telemetry)
-              .execute(
-                  flaky, TransactionSettings.SERIALIZABLE_WRITE, 3, connection, Span.getInvalid());
+          TransactionExecutor.execute(
+              telemetry,
+              flaky,
+              TransactionSettings.SERIALIZABLE_WRITE,
+              3,
+              connection,
+              Span.getInvalid());
       assertThat(result).isEqualTo("ok");
     }
     var span =
@@ -90,13 +94,13 @@ class TransactionExecutorIT extends AbstractDatabaseIT {
     try (Connection connection = dataSource().getConnection()) {
       assertThatThrownBy(
               () ->
-                  new TransactionExecutor(telemetry)
-                      .execute(
-                          alwaysConflicts,
-                          TransactionSettings.SERIALIZABLE_WRITE,
-                          2,
-                          connection,
-                          Span.getInvalid()))
+                  TransactionExecutor.execute(
+                      telemetry,
+                      alwaysConflicts,
+                      TransactionSettings.SERIALIZABLE_WRITE,
+                      2,
+                      connection,
+                      Span.getInvalid()))
           .isInstanceOf(SQLException.class);
     }
     var span =
@@ -129,13 +133,13 @@ class TransactionExecutorIT extends AbstractDatabaseIT {
     try (Connection connection = dataSource().getConnection()) {
       assertThatThrownBy(
               () ->
-                  new TransactionExecutor(telemetry)
-                      .execute(
-                          syntaxError,
-                          TransactionSettings.SERIALIZABLE_WRITE,
-                          5,
-                          connection,
-                          Span.getInvalid()))
+                  TransactionExecutor.execute(
+                      telemetry,
+                      syntaxError,
+                      TransactionSettings.SERIALIZABLE_WRITE,
+                      5,
+                      connection,
+                      Span.getInvalid()))
           .isInstanceOf(SQLException.class);
     }
     var span =
@@ -162,13 +166,13 @@ class TransactionExecutorIT extends AbstractDatabaseIT {
     InMemorySpanExporter exporter = newExporter();
     Telemetry telemetry = telemetryWith(exporter);
     try (Connection connection = dataSource().getConnection()) {
-      new TransactionExecutor(telemetry)
-          .execute(
-              ctx -> ctx.execute(selectOneStatement()),
-              TransactionSettings.SERIALIZABLE_WRITE,
-              3,
-              connection,
-              Span.getInvalid());
+      TransactionExecutor.execute(
+          telemetry,
+          ctx -> ctx.execute(selectOneStatement()),
+          TransactionSettings.SERIALIZABLE_WRITE,
+          3,
+          connection,
+          Span.getInvalid());
     }
     long statementSpans =
         exporter.getFinishedSpanItems().stream()

@@ -139,9 +139,13 @@ public class Session implements AutoCloseable {
     Objects.requireNonNull(transactionSettings, "transactionSettings");
 
     try (Connection connection = dataSource.getConnection()) {
-      TransactionExecutor executor = new TransactionExecutor(telemetry);
-      return executor.execute(
-          transaction, transactionSettings, settings.retryAttempts(), connection, parentSpan);
+      return TransactionExecutor.execute(
+          telemetry,
+          transaction,
+          transactionSettings,
+          settings.retryAttempts(),
+          connection,
+          parentSpan);
     }
   }
 
