@@ -3,7 +3,8 @@ package io.codemine.java.richpg;
 import java.sql.SQLException;
 
 /**
- * Classifies a failure's PostgreSQL SQLSTATE into the retry strategy a retry loop should use.
+ * Wraps a failure with its extracted PostgreSQL SQLSTATE (if any), exposing the retry decisions the
+ * statement and transaction retry loops need to make.
  *
  * <p>{@code 40001} (serialization failure) and {@code 40P01} (deadlock detected) are retried on the
  * same connection regardless of idempotency, since PostgreSQL guarantees the failing statement's
@@ -16,72 +17,62 @@ import java.sql.SQLException;
  * idempotent: the outcome is ambiguous, so retrying a non-idempotent operation could duplicate an
  * effect that already landed. Every other failure is not retried.
  */
-final class SqlStateClassifier {
-
-  private SqlStateClassifier() {}
+final class ClassifiedSqlFailure {
 
   private static final String SERIALIZATION_FAILURE = "40001";
   private static final String DEADLOCK_DETECTED = "40P01";
   private static final String UNIQUE_VIOLATION = "23505";
   private static final String CONNECTION_EXCEPTION_CLASS = "08";
 
-  /** The connection strategy a retry loop should use for its next attempt. */
-  enum RetryStrategy {
-    /** Retry on the same connection: the failure did not compromise the connection itself. */
-    SAME_CONNECTION,
-    /** Retry on a freshly borrowed connection: the failed connection may no longer be usable. */
-    NEW_CONNECTION,
-    /** Do not retry. */
-    NO_RETRY
+  private final String sqlState;
+
+  ClassifiedSqlFailure(Throwable failure) {
+    this.sqlState = extractSqlState(failure);
   }
 
   /**
-   * Classifies {@code failure} into the retry strategy the statement retry loop should use.
+   * The retry strategy the statement retry loop should use for its next attempt.
    *
-   * @param failure the exception to classify
    * @param idempotent whether the operation being retried is idempotent
    * @return the retry strategy to use for the next attempt
    */
-  static RetryStrategy classify(Throwable failure, boolean idempotent) {
-    String state = sqlState(failure);
-    if (state == null) {
+  RetryStrategy toRetryStrategy(boolean idempotent) {
+    if (sqlState == null) {
       return RetryStrategy.NO_RETRY;
     }
-    if (state.equals(SERIALIZATION_FAILURE) || state.equals(DEADLOCK_DETECTED)) {
+    if (sqlState.equals(SERIALIZATION_FAILURE) || sqlState.equals(DEADLOCK_DETECTED)) {
       return RetryStrategy.SAME_CONNECTION;
     }
-    if (state.startsWith(CONNECTION_EXCEPTION_CLASS) && idempotent) {
+    if (sqlState.startsWith(CONNECTION_EXCEPTION_CLASS) && idempotent) {
       return RetryStrategy.NEW_CONNECTION;
     }
     return RetryStrategy.NO_RETRY;
   }
 
   /**
-   * Returns true if the transaction retry loop should retry {@code failure} on the same connection:
+   * Returns true if the transaction retry loop should retry this failure on the same connection:
    * serialization failure ({@code 40001}), deadlock detected ({@code 40P01}), or unique violation
    * ({@code 23505}).
    */
-  static boolean isTransactionRetryable(Throwable failure) {
-    String state = sqlState(failure);
-    return state != null
-        && (state.equals(SERIALIZATION_FAILURE)
-            || state.equals(DEADLOCK_DETECTED)
-            || state.equals(UNIQUE_VIOLATION));
+  boolean isTransactionRetryable() {
+    return sqlState != null
+        && (sqlState.equals(SERIALIZATION_FAILURE)
+            || sqlState.equals(DEADLOCK_DETECTED)
+            || sqlState.equals(UNIQUE_VIOLATION));
   }
 
   /**
-   * Returns true if {@code failure}'s SQLSTATE marks a transaction-wide failure that a savepoint
-   * rollback cannot heal ({@code 40001} serialization failure, {@code 40P01} deadlock detected) —
-   * these must propagate to the transaction-level retry loop instead of being absorbed by {@link
-   * io.codemine.java.richpg.Transaction#or}.
+   * Returns true if this failure's SQLSTATE marks a transaction-wide failure that a savepoint
+   * rollback cannot heal ({@code 40001} serialization failure, {@code 40P01} deadlock detected)
+   * &mdash; these must propagate to the transaction-level retry loop instead of being absorbed by
+   * {@link io.codemine.java.richpg.Transaction#or}.
    */
-  static boolean isTransactionWide(Throwable failure) {
-    String state = sqlState(failure);
-    return state != null
-        && (state.equals(SERIALIZATION_FAILURE) || state.equals(DEADLOCK_DETECTED));
+  boolean isTransactionWide() {
+    return sqlState != null
+        && (sqlState.equals(SERIALIZATION_FAILURE) || sqlState.equals(DEADLOCK_DETECTED));
   }
 
-  private static String sqlState(Throwable failure) {
+  private static String extractSqlState(Throwable failure) {
     SQLException sqlException = extractSqlException(failure);
     return sqlException == null ? null : sqlException.getSQLState();
   }

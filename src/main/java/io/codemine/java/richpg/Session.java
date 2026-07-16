@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>Instances are thread-safe; concurrent calls are supported. {@link #close()} is idempotent.
  *
- * <p>{@link #execute} always retries per {@link SqlStateClassifier}, up to {@link
+ * <p>{@link #execute} always retries per {@link RetryStrategy}, up to {@link
  * SessionSettings#retryAttempts()} attempts; there is no non-retrying entry point. {@link
  * #executeTransaction} retries the whole transaction body up to the same {@link
  * SessionSettings#retryAttempts()} bound when a failure is transaction-retryable.
@@ -52,7 +52,7 @@ public class Session implements AutoCloseable {
   }
 
   /**
-   * Execute any generated statement record, always retrying it per {@link SqlStateClassifier}: a
+   * Execute any generated statement record, always retrying it per {@link RetryStrategy}: a
    * statement is retried when the failure's SQLSTATE is safe to retry given whether the statement
    * is declared {@link Statement#idempotent() idempotent}, regardless of any explicit opt-in.
    *

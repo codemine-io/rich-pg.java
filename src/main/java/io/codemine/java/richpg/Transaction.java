@@ -95,7 +95,7 @@ public interface Transaction<R> {
    * Falls back to {@code alternative} if this transaction fails.
    *
    * <p>Runs this transaction under a savepoint. On success, releases the savepoint and returns the
-   * result. On a {@link SQLException} that {@link SqlStateClassifier#isTransactionWide} marks as
+   * result. On a {@link SQLException} that {@link ClassifiedSqlFailure#isTransactionWide} marks as
    * transaction-wide (serialization failure {@code 40001} or deadlock detected {@code 40P01}),
    * rethrows it untouched: those failures are transaction-wide and a savepoint rollback cannot heal
    * them, so they must reach the session-side transaction retry loop instead. On any other failure
@@ -117,7 +117,7 @@ public interface Transaction<R> {
         context.releaseSavepoint(savepoint);
         return result;
       } catch (Throwable t) {
-        if (SqlStateClassifier.isTransactionWide(t)) {
+        if (new ClassifiedSqlFailure(t).isTransactionWide()) {
           throw t;
         }
         try {

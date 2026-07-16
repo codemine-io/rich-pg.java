@@ -9,11 +9,11 @@ import java.util.Objects;
 
 /**
  * Executes a single {@link Statement} outside of a transaction, always retrying per {@link
- * SqlStateClassifier}.
+ * RetryStrategy}.
  *
- * <p>There is no non-retrying entry point: safety is guaranteed by the classifier only retrying
- * {@code 08}-class connection failures when {@link Statement#idempotent()} is true, and always
- * retrying {@code 40001}/{@code 40P01} on the same connection regardless of idempotency.
+ * <p>There is no non-retrying entry point: safety is guaranteed by only retrying {@code 08}-class
+ * connection failures when {@link Statement#idempotent()} is true, and always retrying {@code
+ * 40001}/{@code 40P01} on the same connection regardless of idempotency.
  */
 final class StatementExecutor {
 
@@ -55,9 +55,8 @@ final class StatementExecutor {
           return result;
         } catch (SQLException failure) {
           Duration attemptDuration = Duration.ofNanos(System.nanoTime() - attemptStart);
-          SqlStateClassifier.RetryStrategy strategy =
-              SqlStateClassifier.classify(failure, statement.idempotent());
-          boolean retryable = strategy != SqlStateClassifier.RetryStrategy.NO_RETRY;
+          RetryStrategy strategy = RetryStrategy.classify(failure, statement.idempotent());
+          boolean retryable = strategy != RetryStrategy.NO_RETRY;
           if (!retryable || attempt >= maxAttempts) {
             operation.finish(
                 attempt,
@@ -68,7 +67,7 @@ final class StatementExecutor {
             throw failure;
           }
           telemetry.recordAttemptFailed(operation.span(), attempt, failure, attemptDuration);
-          if (strategy == SqlStateClassifier.RetryStrategy.NEW_CONNECTION) {
+          if (strategy == RetryStrategy.NEW_CONNECTION) {
             connection.close();
             connection = connectionSupplier.get();
           }

@@ -85,7 +85,7 @@ final class TransactionExecutor {
           e.addSuppressed(suppressed);
         }
         Duration attemptDuration = Duration.ofNanos(System.nanoTime() - attemptStart);
-        boolean retryable = SqlStateClassifier.isTransactionRetryable(e);
+        boolean retryable = new ClassifiedSqlFailure(e).isTransactionRetryable();
         if (!retryable || attempt >= maxAttempts) {
           SQLException failure = e instanceof SQLException sqlException ? sqlException : null;
           operation.finish(
