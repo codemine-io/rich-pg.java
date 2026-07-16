@@ -10,6 +10,7 @@ import io.opentelemetry.api.metrics.LongCounter;
 import io.opentelemetry.api.metrics.Meter;
 import io.opentelemetry.api.metrics.ObservableLongGauge;
 import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanBuilder;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.Tracer;
@@ -218,6 +219,23 @@ final class Telemetry {
   }
 
   /**
+   * Starts a span builder pre-seeded with the attributes present on every rich-pg span (db system,
+   * artifact name) and parented to {@code parentSpan} when non-null.
+   */
+  private SpanBuilder newSpanBuilder(String name, SpanKind kind, Span parentSpan) {
+    SpanBuilder builder =
+        tracer
+            .spanBuilder(name)
+            .setSpanKind(kind)
+            .setAttribute(DB_SYSTEM_NAME, DB_SYSTEM)
+            .setAttribute(ARTIFACT_NAME, artifactName);
+    if (parentSpan != null) {
+      builder.setParent(Context.current().with(parentSpan));
+    }
+    return builder;
+  }
+
+  /**
    * Starts a standalone CLIENT statement span (covers all attempts), parented to {@code parentSpan}
    * or the current context.
    */
@@ -251,21 +269,14 @@ final class Telemetry {
       Integer batchSize,
       Span parentSpan) {
     var builder =
-        tracer
-            .spanBuilder(statementName)
-            .setSpanKind(SpanKind.CLIENT)
-            .setAttribute(DB_SYSTEM_NAME, DB_SYSTEM)
+        newSpanBuilder(statementName, SpanKind.CLIENT, parentSpan)
             .setAttribute(DB_QUERY_TEXT, sql)
             .setAttribute(STATEMENT_NAME, statementName)
-            .setAttribute(DB_USER, dbUser)
-            .setAttribute(ARTIFACT_NAME, artifactName);
+            .setAttribute(DB_USER, dbUser);
     operationName.ifPresent(v -> builder.setAttribute(DB_OPERATION_NAME, v));
     collectionName.ifPresent(v -> builder.setAttribute(DB_COLLECTION_NAME, v));
     if (batchSize != null) {
       builder.setAttribute(BATCH_SIZE, (long) batchSize);
-    }
-    if (parentSpan != null) {
-      builder.setParent(Context.current().with(parentSpan));
     }
     return new StatementHandle(
         builder.startSpan(), statementName, sql, operationName, collectionName);
@@ -348,17 +359,10 @@ final class Telemetry {
   StatementOperationHandle startStatementOperation(
       Statement<?> statement, int maxAttempts, Span parentSpan) {
     var builder =
-        tracer
-            .spanBuilder(statement.statementName())
-            .setSpanKind(SpanKind.CLIENT)
-            .setAttribute(DB_SYSTEM_NAME, DB_SYSTEM)
+        newSpanBuilder(statement.statementName(), SpanKind.CLIENT, parentSpan)
             .setAttribute(DB_QUERY_TEXT, statement.sql())
             .setAttribute(STATEMENT_NAME, statement.statementName())
-            .setAttribute(ARTIFACT_NAME, artifactName)
             .setAttribute(MAX_ATTEMPTS_STMT, (long) maxAttempts);
-    if (parentSpan != null) {
-      builder.setParent(Context.current().with(parentSpan));
-    }
     return new StatementOperationHandle(builder.startSpan(), statement.statementName());
   }
 
@@ -404,17 +408,10 @@ final class Telemetry {
   TransactionOperationHandle startTransactionOperation(
       TransactionSettings settings, int maxAttempts, Span parentSpan) {
     var builder =
-        tracer
-            .spanBuilder("transaction")
-            .setSpanKind(SpanKind.INTERNAL)
-            .setAttribute(DB_SYSTEM_NAME, DB_SYSTEM)
-            .setAttribute(ARTIFACT_NAME, artifactName)
+        newSpanBuilder("transaction", SpanKind.INTERNAL, parentSpan)
             .setAttribute(ISOLATION_LEVEL, settings.isolationLevel().name())
             .setAttribute(READ_ONLY, settings.readOnly())
             .setAttribute(MAX_ATTEMPTS_TXN, (long) maxAttempts);
-    if (parentSpan != null) {
-      builder.setParent(Context.current().with(parentSpan));
-    }
     return new TransactionOperationHandle(builder.startSpan());
   }
 
@@ -504,12 +501,7 @@ final class Telemetry {
   }
 
   Span startHealthCheckSpan() {
-    return tracer
-        .spanBuilder("healthCheck")
-        .setSpanKind(SpanKind.CLIENT)
-        .setAttribute(DB_SYSTEM_NAME, DB_SYSTEM)
-        .setAttribute(ARTIFACT_NAME, artifactName)
-        .startSpan();
+    return newSpanBuilder("healthCheck", SpanKind.CLIENT, null).startSpan();
   }
 
   CloseHandle startClose() {
@@ -525,11 +517,8 @@ final class Telemetry {
 
     void finish(int remainingConnections) {
       Span span =
-          tracer
-              .spanBuilder("session.close")
-              .setSpanKind(SpanKind.INTERNAL)
+          newSpanBuilder("session.close", SpanKind.INTERNAL, null)
               .setAttribute(CLOSE_CONNECTIONS_REMAINING, (long) remainingConnections)
-              .setAttribute(ARTIFACT_NAME, artifactName)
               .startSpan();
       try {
         span.setStatus(
