@@ -8,15 +8,10 @@ flowchart LR
   end
 
   subgraph transaction["transaction"]
-    TransactionExecutor["TransactionExecutor<br/><small>retry loop over Transaction</small>"]
     Transaction["Transaction<br/><small>unit of work, pure & re-runnable</small>"]
     ConnectionExecutionContext["ConnectionExecutionContext<br/><small>plain ExecutionContext over a Connection</small>"]
     ExecutionContext["ExecutionContext<br/><small>execute + savepoints in-tx</small>"]
     TransactionSettings["TransactionSettings<br/><small>isolation level + read-only flag</small>"]
-  end
-
-  subgraph statement["statement"]
-    Session["Session<br/><small>owns pool, execute/executeTransaction</small>"]
   end
 
   subgraph support["support"]
@@ -26,22 +21,17 @@ flowchart LR
     Telemetry["Telemetry<br/><small>logger, OTel traces & metrics</small>"]
   end
 
+  Session --> ClassifiedSqlFailure
+  Session --> ConnectionExecutionContext
+  Session --> ExecutionContext
   Session --> IsolationLevel
   Session --> SessionSettings
   Session --> RetryStrategy
   Session --> Telemetry
   Session --> Transaction
-  Session --> TransactionExecutor
   Session --> TransactionSettings
 
   SessionSettings --> Session
-
-  TransactionExecutor --> ClassifiedSqlFailure
-  TransactionExecutor --> ConnectionExecutionContext
-  TransactionExecutor --> ExecutionContext
-  TransactionExecutor --> Telemetry
-  TransactionExecutor --> Transaction
-  TransactionExecutor --> TransactionSettings
 
   Transaction --> ClassifiedSqlFailure
   Transaction --> ExecutionContext

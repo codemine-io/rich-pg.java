@@ -13,8 +13,8 @@ import java.util.Objects;
  *
  * <p>Executes statements and manages savepoints straight against the connection. It holds no
  * transaction-boundary control (commit/rollback, auto-commit, isolation level, read-only): those
- * are performed by {@link TransactionExecutor} on the connection itself, so transaction bodies —
- * which only ever see an {@link ExecutionContext} — cannot reach them.
+ * are performed by {@link Session} on the connection itself, so transaction bodies — which only
+ * ever see an {@link ExecutionContext} — cannot reach them.
  */
 final class ConnectionExecutionContext implements ExecutionContext {
 

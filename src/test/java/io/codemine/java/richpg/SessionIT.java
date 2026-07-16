@@ -188,6 +188,52 @@ class SessionIT extends AbstractDatabaseIT {
     assertEquals(2, statementSpanCount, "expected one CLIENT statement span per attempt");
   }
 
+  @Test
+  void transactionExhaustsAttemptsAndThrowsRetriesExhausted() {
+    SessionSettings config = config().withRetryAttempts(2);
+    try (Session session = new Session(config)) {
+      SQLException thrown =
+          org.junit.jupiter.api.Assertions.assertThrows(
+              SQLException.class,
+              () ->
+                  session.executeTransaction(
+                      ctx -> {
+                        throw new SQLException("conflict", "40001");
+                      }));
+      assertEquals("40001", thrown.getSQLState());
+    }
+
+    flush();
+
+    SpanData transactionSpan = singleSpanNamed("transaction");
+    assertEquals(StatusCode.ERROR, transactionSpan.getStatus().getStatusCode());
+    assertEquals(2L, transactionSpan.getAttributes().get(ATTEMPT_COUNT_KEY));
+    assertEquals("retries_exhausted", transactionSpan.getAttributes().get(OUTCOME_KEY));
+  }
+
+  @Test
+  void transactionNonRetryableFailureDoesNotRetry() {
+    SessionSettings config = config();
+    try (Session session = new Session(config)) {
+      SQLException thrown =
+          org.junit.jupiter.api.Assertions.assertThrows(
+              SQLException.class,
+              () ->
+                  session.executeTransaction(
+                      ctx -> {
+                        throw new SQLException("bad syntax", "42601");
+                      }));
+      assertEquals("42601", thrown.getSQLState());
+    }
+
+    flush();
+
+    SpanData transactionSpan = singleSpanNamed("transaction");
+    assertEquals(StatusCode.ERROR, transactionSpan.getStatus().getStatusCode());
+    assertEquals(1L, transactionSpan.getAttributes().get(ATTEMPT_COUNT_KEY));
+    assertEquals("non_retryable_failure", transactionSpan.getAttributes().get(OUTCOME_KEY));
+  }
+
   private SessionSettings config() {
     return SessionSettings.defaults(PG.getJdbcUrl(), PG.getUsername(), PG.getPassword())
         .withOpenTelemetry(openTelemetry);
