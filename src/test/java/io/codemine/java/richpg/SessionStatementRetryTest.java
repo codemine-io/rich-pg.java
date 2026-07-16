@@ -3,31 +3,29 @@ package io.codemine.java.richpg;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import io.codemine.java.postgresql.jdbc.Statement;
-import io.opentelemetry.api.OpenTelemetry;
-import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import java.sql.Connection;
 import java.sql.SQLException;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-class StatementExecutorTest {
+class SessionStatementRetryTest {
 
   private InMemorySpanExporter exporter;
-  private Telemetry telemetry;
+  private HikariDataSource dataSource;
+  private SessionSettings settings;
 
   @BeforeEach
   void setUp() {
     exporter = InMemorySpanExporter.create();
-    OpenTelemetry otel =
+    var otel =
         OpenTelemetrySdk.builder()
             .setTracerProvider(
                 SdkTracerProvider.builder()
@@ -35,10 +33,10 @@ class StatementExecutorTest {
                     .build())
             .build();
     HikariPoolMXBean pool = Mockito.mock(HikariPoolMXBean.class);
-    telemetry =
-        Telemetry.forSession(
-            SessionSettings.defaults("jdbc:postgresql://h/db", "u", "p").withOpenTelemetry(otel),
-            pool);
+    dataSource = Mockito.mock(HikariDataSource.class);
+    Mockito.when(dataSource.getHikariPoolMXBean()).thenReturn(pool);
+    Mockito.doNothing().when(dataSource).close();
+    settings = SessionSettings.defaults("jdbc:postgresql://h/db", "u", "p").withOpenTelemetry(otel);
   }
 
   private static Statement<String> statementReturning(String value, boolean idempotent) {
@@ -56,11 +54,17 @@ class StatementExecutorTest {
     Statement<String> statement = statementReturning("ok", false);
     Mockito.when(statement.execute(Mockito.any())).thenReturn("ok");
     Connection connection = Mockito.mock(Connection.class);
+    Mockito.when(dataSource.getConnection()).thenReturn(connection);
 
-    String result =
-        StatementExecutor.execute(telemetry, statement, 3, () -> connection, Span.getInvalid());
+    Session session = new Session(settings, dataSource);
 
-    assertThat(result).isEqualTo("ok");
+    try {
+      String result = session.execute(statement);
+      assertThat(result).isEqualTo("ok");
+    } finally {
+      session.close();
+    }
+
     var span = exporter.getFinishedSpanItems().get(0);
     assertThat(
             span.getAttributes()
@@ -83,13 +87,18 @@ class StatementExecutorTest {
         .thenThrow(new SQLException("conflict", "40001"))
         .thenReturn("ok");
     Connection connection = Mockito.mock(Connection.class);
-    Deque<Connection> supplied = new ArrayDeque<>(java.util.List.of(connection));
+    Mockito.when(dataSource.getConnection()).thenReturn(connection);
 
-    String result =
-        StatementExecutor.execute(telemetry, statement, 3, supplied::poll, Span.getInvalid());
+    Session session = new Session(settings, dataSource);
 
-    assertThat(result).isEqualTo("ok");
-    // The same connection is reused across attempts (same-connection retry strategy), and closed
+    try {
+      String result = session.execute(statement);
+      assertThat(result).isEqualTo("ok");
+    } finally {
+      session.close();
+    }
+
+    // The same connection is used across attempts (same-connection retry strategy), and closed
     // exactly once in the executor's outer finally after all attempts complete.
     Mockito.verify(connection).close();
   }
@@ -102,13 +111,17 @@ class StatementExecutorTest {
     Mockito.when(statement.execute(failingConnection))
         .thenThrow(new SQLException("conn lost", "08006"));
     Mockito.when(statement.execute(freshConnection)).thenReturn("ok");
-    Deque<Connection> supplied =
-        new ArrayDeque<>(java.util.List.of(failingConnection, freshConnection));
+    Mockito.when(dataSource.getConnection()).thenReturn(failingConnection, freshConnection);
 
-    String result =
-        StatementExecutor.execute(telemetry, statement, 3, supplied::poll, Span.getInvalid());
+    Session session = new Session(settings, dataSource);
 
-    assertThat(result).isEqualTo("ok");
+    try {
+      String result = session.execute(statement);
+      assertThat(result).isEqualTo("ok");
+    } finally {
+      session.close();
+    }
+
     Mockito.verify(failingConnection).close();
   }
 
@@ -117,12 +130,16 @@ class StatementExecutorTest {
     Statement<String> statement = statementReturning("ok", false);
     Connection connection = Mockito.mock(Connection.class);
     Mockito.when(statement.execute(connection)).thenThrow(new SQLException("conn lost", "08006"));
+    Mockito.when(dataSource.getConnection()).thenReturn(connection);
 
-    assertThatThrownBy(
-            () ->
-                StatementExecutor.execute(
-                    telemetry, statement, 3, () -> connection, Span.getInvalid()))
-        .isInstanceOf(SQLException.class);
+    Session session = new Session(settings, dataSource);
+
+    try {
+      assertThatThrownBy(() -> session.execute(statement)).isInstanceOf(SQLException.class);
+    } finally {
+      session.close();
+    }
+
     var span = exporter.getFinishedSpanItems().get(0);
     assertThat(
             span.getAttributes()
@@ -136,12 +153,16 @@ class StatementExecutorTest {
     Statement<String> statement = statementReturning("ok", false);
     Connection connection = Mockito.mock(Connection.class);
     Mockito.when(statement.execute(connection)).thenThrow(new SQLException("conflict", "40001"));
+    Mockito.when(dataSource.getConnection()).thenReturn(connection);
 
-    assertThatThrownBy(
-            () ->
-                StatementExecutor.execute(
-                    telemetry, statement, 2, () -> connection, Span.getInvalid()))
-        .isInstanceOf(SQLException.class);
+    Session session = new Session(settings.withRetryAttempts(2), dataSource);
+
+    try {
+      assertThatThrownBy(() -> session.execute(statement)).isInstanceOf(SQLException.class);
+    } finally {
+      session.close();
+    }
+
     var span = exporter.getFinishedSpanItems().get(0);
     assertThat(
             span.getAttributes()

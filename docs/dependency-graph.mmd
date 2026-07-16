@@ -16,8 +16,7 @@ flowchart LR
   end
 
   subgraph statement["statement"]
-    StatementExecutor["StatementExecutor<br/><small>executes one Statement, retries</small>"]
-    ConnectionSupplier["ConnectionSupplier<br/><small>supplies a JDBC connection</small>"]
+    Session["Session<br/><small>owns pool, execute/executeTransaction</small>"]
   end
 
   subgraph support["support"]
@@ -29,17 +28,13 @@ flowchart LR
 
   Session --> IsolationLevel
   Session --> SessionSettings
-  Session --> StatementExecutor
+  Session --> RetryStrategy
   Session --> Telemetry
   Session --> Transaction
   Session --> TransactionExecutor
   Session --> TransactionSettings
 
   SessionSettings --> Session
-
-  StatementExecutor --> ConnectionSupplier
-  StatementExecutor --> RetryStrategy
-  StatementExecutor --> Telemetry
 
   TransactionExecutor --> ClassifiedSqlFailure
   TransactionExecutor --> ConnectionExecutionContext

@@ -9,6 +9,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -52,6 +53,16 @@ public class Session implements AutoCloseable {
   }
 
   /**
+   * Package-private constructor for testing — uses a pre-built data source instead of creating one
+   * from settings.
+   */
+  Session(SessionSettings settings, HikariDataSource dataSource) {
+    this.settings = Objects.requireNonNull(settings, "settings");
+    this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
+    this.telemetry = Telemetry.forSession(settings, dataSource.getHikariPoolMXBean());
+  }
+
+  /**
    * Execute any generated statement record, always retrying it per {@link RetryStrategy}: a
    * statement is retried when the failure's SQLSTATE is safe to retry given whether the statement
    * is declared {@link Statement#idempotent() idempotent}, regardless of any explicit opt-in.
@@ -88,8 +99,42 @@ public class Session implements AutoCloseable {
     ensureOpen();
     Objects.requireNonNull(statement, "statement");
 
-    return StatementExecutor.execute(
-        telemetry, statement, settings.retryAttempts(), dataSource::getConnection, parentSpan);
+    try (Telemetry.StatementOperationHandle operation =
+            telemetry.startStatementOperation(statement, settings.retryAttempts(), parentSpan);
+        var scope = operation.span().makeCurrent()) {
+      Connection connection = dataSource.getConnection();
+      try {
+        for (int attempt = 1; ; attempt++) {
+          long attemptStart = System.nanoTime();
+          try {
+            R result = statement.execute(connection);
+            operation.finish(attempt, Telemetry.Outcome.SUCCEEDED, null);
+            return result;
+          } catch (SQLException failure) {
+            Duration attemptDuration = Duration.ofNanos(System.nanoTime() - attemptStart);
+            RetryStrategy strategy = RetryStrategy.classify(failure, statement.idempotent());
+            boolean retryable = strategy != RetryStrategy.NO_RETRY;
+            if (!retryable || attempt >= settings.retryAttempts()) {
+              operation.finish(
+                  attempt,
+                  retryable
+                      ? Telemetry.Outcome.RETRIES_EXHAUSTED
+                      : Telemetry.Outcome.NON_RETRYABLE_FAILURE,
+                  failure);
+              throw failure;
+            }
+            telemetry.recordAttemptFailed(operation.span(), attempt, failure, attemptDuration);
+            if (strategy == RetryStrategy.NEW_CONNECTION) {
+              // Close the broken connection and open a fresh one for the next attempt.
+              connection.close();
+              connection = dataSource.getConnection();
+            }
+          }
+        }
+      } finally {
+        connection.close();
+      }
+    }
   }
 
   /**
