@@ -13,7 +13,7 @@ import java.util.Objects;
 
 /**
  * Executes {@link Transaction} instances against a connection, owning the retry loop, attempt
- * counting and transaction-level telemetry per design-revision-plan §1.4/§3.1.
+ * counting and transaction-level telemetry.
  *
  * <p>Statements executed via the {@link ExecutionContext} passed to the transaction body run
  * directly against the connection, once per attempt, each wrapped in its own single-attempt CLIENT
@@ -38,7 +38,8 @@ final class TransactionExecutor {
     Objects.requireNonNull(settings, "settings");
     Objects.requireNonNull(connection, "connection");
 
-    Span operationSpan = telemetry.startTransactionOperation(settings, maxAttempts, parentSpan);
+    Telemetry.TransactionOperationHandle operation =
+        telemetry.startTransactionOperation(settings, maxAttempts, parentSpan);
     TransactionContext ctx = TransactionContext.of(connection);
     boolean originalAutoCommit = ctx.getAutoCommit();
     int originalIsolation = ctx.getTransactionIsolation();
@@ -48,8 +49,8 @@ final class TransactionExecutor {
     ctx.setTransactionIsolation(settings.isolationLevel().jdbcLevel());
     ctx.setReadOnly(settings.readOnly());
 
-    try (var scope = operationSpan.makeCurrent()) {
-      return runAttempts(transaction, maxAttempts, ctx, operationSpan);
+    try (var scope = operation.span().makeCurrent()) {
+      return runAttempts(transaction, maxAttempts, ctx, operation);
     } finally {
       try {
         ctx.setAutoCommit(originalAutoCommit);
@@ -59,20 +60,23 @@ final class TransactionExecutor {
         // best-effort restore; the primary outcome (success or the original failure) already
         // determined what propagates out of runAttempts
       }
-      operationSpan.end();
+      operation.recordDurationAndEnd();
     }
   }
 
   private <R> R runAttempts(
-      Transaction<R> transaction, int maxAttempts, TransactionContext ctx, Span operationSpan)
+      Transaction<R> transaction,
+      int maxAttempts,
+      TransactionContext ctx,
+      Telemetry.TransactionOperationHandle operation)
       throws SQLException {
-    ExecutionContext instrumentedContext = new NestedExecutionContext(ctx, operationSpan);
+    ExecutionContext instrumentedContext = new NestedExecutionContext(ctx, operation.span());
     for (int attempt = 1; ; attempt++) {
       long attemptStart = System.nanoTime();
       try {
         R result = transaction.run(instrumentedContext);
         ctx.commit();
-        telemetry.finishTransactionOperation(operationSpan, attempt, true, false, null);
+        operation.finish(attempt, Telemetry.Outcome.SUCCEEDED, null);
         return result;
       } catch (Exception e) {
         try {
@@ -81,17 +85,21 @@ final class TransactionExecutor {
           e.addSuppressed(suppressed);
         }
         Duration attemptDuration = Duration.ofNanos(System.nanoTime() - attemptStart);
-        boolean retryable =
-            SqlStateClassifier.classify(e, false)
-                == SqlStateClassifier.RetryStrategy.SAME_CONNECTION;
+        boolean retryable = SqlStateClassifier.isTransactionRetryable(e);
         if (!retryable || attempt >= maxAttempts) {
-          telemetry.finishTransactionOperation(operationSpan, attempt, false, retryable, e);
-          if (e instanceof SQLException sqlException) {
-            throw sqlException;
+          SQLException failure = e instanceof SQLException sqlException ? sqlException : null;
+          operation.finish(
+              attempt,
+              retryable
+                  ? Telemetry.Outcome.RETRIES_EXHAUSTED
+                  : Telemetry.Outcome.NON_RETRYABLE_FAILURE,
+              e);
+          if (failure != null) {
+            throw failure;
           }
           throw new SQLException("Transaction failed", e);
         }
-        telemetry.recordAttemptFailed(operationSpan, attempt, e, attemptDuration);
+        telemetry.recordAttemptFailed(operation.span(), attempt, e, attemptDuration);
       }
     }
   }
@@ -111,15 +119,8 @@ final class TransactionExecutor {
 
     @Override
     public <R> R execute(Statement<R> statement) throws SQLException {
-      var handle = telemetry.startNestedStatement(statement, transactionSpan);
-      try {
-        R result = delegate.execute(statement);
-        handle.succeeded();
-        return result;
-      } catch (SQLException e) {
-        handle.failed(e);
-        throw e;
-      }
+      return traced(
+          telemetry.startStatement(statement, transactionSpan), () -> delegate.execute(statement));
     }
 
     @Override
@@ -131,15 +132,26 @@ final class TransactionExecutor {
         return List.of();
       }
       StatementBatch<R> batch = new StatementBatch<>(list);
-      var handle = telemetry.startNestedBatch(batch, list.get(0), transactionSpan);
+      return traced(
+          telemetry.startBatch(batch, list.get(0), transactionSpan),
+          () -> delegate.executeBatch(list));
+    }
+
+    private <R> R traced(Telemetry.StatementHandle handle, SqlSupplier<R> action)
+        throws SQLException {
       try {
-        List<R> result = delegate.executeBatch(list);
+        R result = action.get();
         handle.succeeded();
         return result;
       } catch (SQLException e) {
         handle.failed(e);
         throw e;
       }
+    }
+
+    @FunctionalInterface
+    private interface SqlSupplier<R> {
+      R get() throws SQLException;
     }
 
     @Override

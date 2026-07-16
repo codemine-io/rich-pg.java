@@ -175,9 +175,6 @@ public interface Transaction<R> {
    */
   @SafeVarargs
   static <R> Transaction<R> firstOf(Transaction<R>... alternatives) {
-    if (alternatives == null) {
-      return Transaction.empty();
-    }
-    return Arrays.stream(alternatives).reduce(Transaction.empty(), Transaction::or);
+    return firstOf(alternatives == null ? null : Arrays.asList(alternatives));
   }
 }

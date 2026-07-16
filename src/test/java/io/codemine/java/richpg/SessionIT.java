@@ -62,7 +62,7 @@ class SessionIT extends AbstractDatabaseIT {
   }
 
   @Test
-  void executeEmitsStatementOperationSpan() throws SQLException {
+  void executeEmitsStatementOperationSpanAndDurationMetric() throws SQLException {
     SessionSettings config = config();
     try (Session session = new Session(config)) {
       String result = session.execute(new SelectOneStatement());
@@ -71,8 +71,8 @@ class SessionIT extends AbstractDatabaseIT {
 
     flush();
 
-    // Per design-revision §3.1, a standalone statement's telemetry is a single CLIENT operation
-    // span covering all attempts; there is no more per-attempt leaf span nor duration metric.
+    // A standalone statement's telemetry is a single CLIENT operation span covering all attempts;
+    // there is no more per-attempt leaf span.
     SpanData span = singleSpanNamed("SelectOneStatement");
     assertEquals(SpanKind.CLIENT, span.getKind());
     assertEquals(StatusCode.OK, span.getStatus().getStatusCode());
@@ -80,6 +80,10 @@ class SessionIT extends AbstractDatabaseIT {
     assertEquals(1L, span.getAttributes().get(STATEMENT_ATTEMPT_COUNT_KEY));
     assertEquals("succeeded", span.getAttributes().get(STATEMENT_OUTCOME_KEY));
     assertEquals(0, childSpansOf(span).size(), "expected no nested statement span");
+
+    assertFalse(
+        durationMetricPoints().isEmpty(),
+        "expected db.client.operation.duration to be recorded for the standalone statement");
   }
 
   @Test
@@ -104,6 +108,10 @@ class SessionIT extends AbstractDatabaseIT {
     assertEquals(1, childSpans.size(), "expected one nested statement span");
     assertEquals("SelectOneStatement", childSpans.get(0).getName());
     assertEquals(SpanKind.CLIENT, childSpans.get(0).getKind());
+
+    assertFalse(
+        durationMetricPoints().isEmpty(),
+        "expected db.client.operation.duration to be recorded for the transaction");
   }
 
   @Test
@@ -209,6 +217,12 @@ class SessionIT extends AbstractDatabaseIT {
   private List<MetricData> poolGaugeMetrics() {
     return metricReader.collectAllMetrics().stream()
         .filter(m -> m.getName().startsWith("pgenie.pool.connections."))
+        .toList();
+  }
+
+  private List<MetricData> durationMetricPoints() {
+    return metricReader.collectAllMetrics().stream()
+        .filter(m -> m.getName().equals("db.client.operation.duration"))
         .toList();
   }
 

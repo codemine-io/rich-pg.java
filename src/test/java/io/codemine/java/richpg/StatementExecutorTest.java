@@ -154,9 +154,9 @@ class StatementExecutorTest {
                 .get(
                     io.opentelemetry.api.common.AttributeKey.stringKey("pgenie.statement.outcome")))
         .isEqualTo("retries_exhausted");
-    // 2 events: the "attempt 1 failed" event from recordAttemptFailed, plus the automatic
-    // "exception" event that Telemetry.finishStatementOperation adds via Span.recordException when
-    // the final attempt also fails.
+    // 2 "exception" events: one from recordAttemptFailed for the failed first attempt (carrying
+    // attempt.number/attempt.duration_seconds), plus one the operation handle adds via
+    // Span.recordException when the final attempt also fails.
     assertThat(span.getEvents()).hasSize(2);
   }
 }

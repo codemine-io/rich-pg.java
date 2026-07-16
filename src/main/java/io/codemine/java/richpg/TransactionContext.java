@@ -9,12 +9,12 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * The transaction-boundary control surface used by {@link Transaction#execute}. It extends {@link
- * ExecutionContext} with the commit/rollback and connection-state operations that only the executor
- * should manage; transaction bodies receive only the safer {@link ExecutionContext}. Every member
- * is abstract by design: implementors must explicitly provide each behavior rather than inherit a
- * {@link Connection}-backed default. Use {@link #of(Connection)} to obtain a plain JDBC-backed
- * implementation.
+ * The transaction-boundary control surface used by {@link TransactionExecutor#execute}. It extends
+ * {@link ExecutionContext} with the commit/rollback and connection-state operations that only the
+ * executor should manage; transaction bodies receive only the safer {@link ExecutionContext}. Every
+ * member is abstract by design: implementors must explicitly provide each behavior rather than
+ * inherit a {@link Connection}-backed default. Use {@link #of(Connection)} to obtain a plain
+ * JDBC-backed implementation.
  */
 interface TransactionContext extends ExecutionContext {
 

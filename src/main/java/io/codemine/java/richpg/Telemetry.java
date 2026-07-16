@@ -37,6 +37,7 @@ final class Telemetry {
 
   private static final String DB_SYSTEM = "postgresql";
   private static final String METRIC_NAME = "db.client.operation.duration";
+  private static final String PASSWORD_PARAM = "password=";
 
   private static final AttributeKey<String> DB_SYSTEM_NAME =
       AttributeKey.stringKey("db.system.name");
@@ -71,11 +72,21 @@ final class Telemetry {
   private static final AttributeKey<Long> CLOSE_CONNECTIONS_REMAINING =
       AttributeKey.longKey("pgenie.session.close.connections_remaining");
   private static final AttributeKey<String> POOL_NAME = AttributeKey.stringKey("pool.name");
+  private static final AttributeKey<Long> ATTEMPT_NUMBER = AttributeKey.longKey("attempt.number");
+  private static final AttributeKey<Double> ATTEMPT_DURATION_SECONDS =
+      AttributeKey.doubleKey("attempt.duration_seconds");
 
   static final String OUTCOME_SUCCEEDED = "succeeded";
   static final String OUTCOME_COMMITTED = "committed";
   static final String OUTCOME_RETRIES_EXHAUSTED = "retries_exhausted";
   static final String OUTCOME_NON_RETRYABLE_FAILURE = "non_retryable_failure";
+
+  /** The terminal state of a retried operation, replacing a positional succeeded/retryable pair. */
+  enum Outcome {
+    SUCCEEDED,
+    RETRIES_EXHAUSTED,
+    NON_RETRYABLE_FAILURE
+  }
 
   private final Tracer tracer;
   private final DoubleHistogram durationHistogram;
@@ -110,16 +121,17 @@ final class Telemetry {
   }
 
   /**
-   * Builds a session's telemetry from its config and pool MX bean, registering the pool gauges and
-   * logging the (URL-redacted) "Session opened" line.
+   * Builds a session's telemetry from its settings and pool MX bean, registering the pool gauges
+   * and logging the (URL-redacted) "Session opened" line.
    */
-  static Telemetry forSession(SessionSettings config, HikariPoolMXBean poolMxBean) {
-    Objects.requireNonNull(config, "config");
+  static Telemetry forSession(SessionSettings settings, HikariPoolMXBean poolMxBean) {
+    Objects.requireNonNull(settings, "settings");
     Objects.requireNonNull(poolMxBean, "poolMxBean");
 
     Logger logger = LoggerFactory.getLogger(Telemetry.class);
-    Tracer tracer = config.openTelemetry().getTracer(config.scopeName(), config.scopeVersion());
-    Meter meter = config.openTelemetry().getMeter(config.scopeName());
+    Tracer tracer =
+        settings.openTelemetry().getTracer(settings.scopeName(), settings.scopeVersion());
+    Meter meter = settings.openTelemetry().getMeter(settings.scopeName());
     DoubleHistogram durationHistogram =
         meter
             .histogramBuilder(METRIC_NAME)
@@ -137,13 +149,13 @@ final class Telemetry {
             .setDescription("Number of transaction retries")
             .build();
 
-    List<ObservableLongGauge> gauges = registerPoolGauges(meter, poolMxBean, config.poolName());
+    List<ObservableLongGauge> gauges = registerPoolGauges(meter, poolMxBean, settings.poolName());
 
     logger.info(
         "Session opened for jdbcUrl={} user={} artifact={}",
-        redactUrl(config.jdbcUrl()),
-        config.user(),
-        config.artifactName());
+        redactUrl(settings.jdbcUrl()),
+        settings.user(),
+        settings.artifactName());
 
     return new Telemetry(
         tracer,
@@ -151,9 +163,9 @@ final class Telemetry {
         statementRetries,
         transactionRetries,
         logger,
-        config.user(),
-        config.artifactName(),
-        config.slowQueryLogThreshold(),
+        settings.user(),
+        settings.artifactName(),
+        settings.slowQueryLogThreshold(),
         gauges);
   }
 
@@ -193,15 +205,16 @@ final class Telemetry {
     if (url == null) {
       return null;
     }
-    int passwordIndex = url.toLowerCase().indexOf("password=");
+    int passwordIndex = url.toLowerCase().indexOf(PASSWORD_PARAM);
     if (passwordIndex == -1) {
       return url;
     }
+    int redactedStart = passwordIndex + PASSWORD_PARAM.length();
     int ampersandIndex = url.indexOf('&', passwordIndex);
     if (ampersandIndex == -1) {
-      return url.substring(0, passwordIndex + 9) + "***";
+      return url.substring(0, redactedStart) + "***";
     }
-    return url.substring(0, passwordIndex + 9) + "***" + url.substring(ampersandIndex);
+    return url.substring(0, redactedStart) + "***" + url.substring(ampersandIndex);
   }
 
   /**
@@ -228,19 +241,6 @@ final class Telemetry {
         representative.collectionName(),
         batch.size(),
         parentSpan);
-  }
-
-  /**
-   * Starts a single-attempt CLIENT statement span nested under a transaction span (no retry span
-   * layer).
-   */
-  StatementHandle startNestedStatement(Statement<?> statement, Span transactionSpan) {
-    return startStatement(statement, transactionSpan);
-  }
-
-  StatementHandle startNestedBatch(
-      StatementBatch<?> batch, Statement<?> representative, Span transactionSpan) {
-    return startBatch(batch, representative, transactionSpan);
   }
 
   private StatementHandle startStatementSpan(
@@ -311,8 +311,13 @@ final class Telemetry {
     }
 
     private void finish() {
-      long durationNanos = System.nanoTime() - startNanos;
-      double durationSeconds = durationNanos / 1_000_000_000.0;
+      Duration duration = Duration.ofNanos(System.nanoTime() - startNanos);
+      recordDuration(duration, durationAttributes());
+      logIfSlow(statementName, duration);
+      span.end();
+    }
+
+    private Attributes durationAttributes() {
       var attrs =
           Attributes.builder()
               .put(DB_SYSTEM_NAME, DB_SYSTEM)
@@ -320,64 +325,80 @@ final class Telemetry {
               .put(STATEMENT_NAME, statementName);
       operationName.ifPresent(v -> attrs.put(DB_OPERATION_NAME, v));
       collectionName.ifPresent(v -> attrs.put(DB_COLLECTION_NAME, v));
-      durationHistogram.record(durationSeconds, attrs.build());
-      if (Duration.ofNanos(durationNanos).compareTo(slowQueryLogThreshold) > 0) {
-        logger.warn("Slow query detected: {} took {} seconds", statementName, durationSeconds);
-      }
-      span.end();
+      return attrs.build();
     }
   }
 
-  /** Records a failed attempt as a span event on {@code operationSpan}, per design §3.1. */
+  /**
+   * Records a failed attempt as an exception span event on {@code operationSpan}, carrying the
+   * exception, the attempt number, and the attempt duration.
+   */
   void recordAttemptFailed(
       Span operationSpan, int attemptNumber, Throwable failure, Duration attemptDuration) {
-    operationSpan.addEvent(
-        "attempt " + attemptNumber + " failed",
+    operationSpan.recordException(
+        failure,
         Attributes.of(
-            AttributeKey.stringKey("exception.message"), String.valueOf(failure.getMessage()),
-            AttributeKey.stringKey("exception.type"), failure.getClass().getName(),
-            AttributeKey.doubleKey("attempt.duration_seconds"),
-                attemptDuration.toNanos() / 1_000_000_000.0));
+            ATTEMPT_NUMBER,
+            (long) attemptNumber,
+            ATTEMPT_DURATION_SECONDS,
+            attemptDuration.toNanos() / 1_000_000_000.0));
   }
 
-  /** Starts the standalone-statement operation span (parent of all attempt spans + events). */
-  Span startStatementOperation(Statement<?> statement, int maxAttempts, Span parentSpan) {
+  /** Starts the standalone-statement operation span, covering all attempts. */
+  StatementOperationHandle startStatementOperation(
+      Statement<?> statement, int maxAttempts, Span parentSpan) {
     var builder =
         tracer
             .spanBuilder(statement.statementName())
             .setSpanKind(SpanKind.CLIENT)
             .setAttribute(DB_SYSTEM_NAME, DB_SYSTEM)
+            .setAttribute(DB_QUERY_TEXT, statement.sql())
+            .setAttribute(STATEMENT_NAME, statement.statementName())
             .setAttribute(ARTIFACT_NAME, artifactName)
             .setAttribute(MAX_ATTEMPTS_STMT, (long) maxAttempts);
     if (parentSpan != null) {
       builder.setParent(Context.current().with(parentSpan));
     }
-    return builder.startSpan();
+    return new StatementOperationHandle(builder.startSpan(), statement.statementName());
   }
 
-  void finishStatementOperation(
-      Span span, int attempts, boolean succeeded, boolean retryable, Throwable failure) {
-    String outcome =
-        succeeded
-            ? OUTCOME_SUCCEEDED
-            : (retryable ? OUTCOME_RETRIES_EXHAUSTED : OUTCOME_NON_RETRYABLE_FAILURE);
-    span.setAttribute(ATTEMPT_COUNT_STMT, (long) attempts);
-    span.setAttribute(OUTCOME_STMT, outcome);
-    statementRetries.add(Math.max(0, attempts - 1));
-    if (succeeded) {
-      span.setStatus(StatusCode.OK);
-    } else {
-      span.recordException(failure);
-      span.setStatus(StatusCode.ERROR, failure.getMessage());
-      if (OUTCOME_RETRIES_EXHAUSTED.equals(outcome)) {
-        logger.warn("Statement exhausted {} attempts, last failure: {}", attempts, failure);
-      }
+  /** A started standalone-statement operation span plus what's needed to finish it. */
+  final class StatementOperationHandle {
+    private final Span span;
+    private final String statementName;
+    private final long startNanos = System.nanoTime();
+
+    private StatementOperationHandle(Span span, String statementName) {
+      this.span = span;
+      this.statementName = statementName;
     }
-    span.end();
+
+    Span span() {
+      return span;
+    }
+
+    void finish(int attempts, Outcome outcome, Throwable failure) {
+      String outcomeLabel = outcomeLabel(outcome, OUTCOME_SUCCEEDED);
+      finishOperationAttributes(
+          span,
+          statementRetries,
+          ATTEMPT_COUNT_STMT,
+          OUTCOME_STMT,
+          attempts,
+          outcomeLabel,
+          failure);
+      logIfExhausted(statementName, outcome, attempts, failure);
+      Duration duration = Duration.ofNanos(System.nanoTime() - startNanos);
+      recordDuration(
+          duration, Attributes.of(DB_SYSTEM_NAME, DB_SYSTEM, STATEMENT_NAME, statementName));
+      logIfSlow(statementName, duration);
+      span.end();
+    }
   }
 
-  /** Starts the INTERNAL transaction operation span. */
-  Span startTransactionOperation(TransactionSettings settings, int maxAttempts, Span parentSpan) {
+  /** Starts the INTERNAL transaction operation span, covering all attempts. */
+  TransactionOperationHandle startTransactionOperation(
+      TransactionSettings settings, int maxAttempts, Span parentSpan) {
     var builder =
         tracer
             .spanBuilder("transaction")
@@ -390,28 +411,91 @@ final class Telemetry {
     if (parentSpan != null) {
       builder.setParent(Context.current().with(parentSpan));
     }
-    return builder.startSpan();
+    return new TransactionOperationHandle(builder.startSpan());
   }
 
-  void finishTransactionOperation(
-      Span span, int attempts, boolean succeeded, boolean retryable, Throwable failure) {
-    String outcome =
-        succeeded
-            ? OUTCOME_COMMITTED
-            : (retryable ? OUTCOME_RETRIES_EXHAUSTED : OUTCOME_NON_RETRYABLE_FAILURE);
-    span.setAttribute(ATTEMPT_COUNT_TXN, (long) attempts);
-    span.setAttribute(OUTCOME_TXN, outcome);
-    transactionRetries.add(Math.max(0, attempts - 1));
-    if (succeeded) {
+  /**
+   * A started transaction operation span plus what's needed to finish it. Unlike {@link
+   * StatementOperationHandle}, {@link #finish} does not end the span: the executor's
+   * connection-state restore must run first so it stays inside the span's duration, then the
+   * executor ends the span itself.
+   */
+  final class TransactionOperationHandle {
+    private final Span span;
+    private final long startNanos = System.nanoTime();
+
+    private TransactionOperationHandle(Span span) {
+      this.span = span;
+    }
+
+    Span span() {
+      return span;
+    }
+
+    void finish(int attempts, Outcome outcome, Throwable failure) {
+      String outcomeLabel = outcomeLabel(outcome, OUTCOME_COMMITTED);
+      finishOperationAttributes(
+          span,
+          transactionRetries,
+          ATTEMPT_COUNT_TXN,
+          OUTCOME_TXN,
+          attempts,
+          outcomeLabel,
+          failure);
+      logIfExhausted("Transaction", outcome, attempts, failure);
+    }
+
+    void recordDurationAndEnd() {
+      Duration duration = Duration.ofNanos(System.nanoTime() - startNanos);
+      recordDuration(duration, Attributes.of(DB_SYSTEM_NAME, DB_SYSTEM));
+      logIfSlow("transaction", duration);
+      span.end();
+    }
+  }
+
+  private static String outcomeLabel(Outcome outcome, String succeededLabel) {
+    return switch (outcome) {
+      case SUCCEEDED -> succeededLabel;
+      case RETRIES_EXHAUSTED -> OUTCOME_RETRIES_EXHAUSTED;
+      case NON_RETRYABLE_FAILURE -> OUTCOME_NON_RETRYABLE_FAILURE;
+    };
+  }
+
+  private void finishOperationAttributes(
+      Span span,
+      LongCounter retryCounter,
+      AttributeKey<Long> attemptCountKey,
+      AttributeKey<String> outcomeKey,
+      int attempts,
+      String outcomeLabel,
+      Throwable failure) {
+    span.setAttribute(attemptCountKey, (long) attempts);
+    span.setAttribute(outcomeKey, outcomeLabel);
+    retryCounter.add(Math.max(0, attempts - 1));
+    if (failure == null) {
       span.setStatus(StatusCode.OK);
     } else {
       span.recordException(failure);
       span.setStatus(StatusCode.ERROR, failure.getMessage());
-      if (OUTCOME_RETRIES_EXHAUSTED.equals(outcome)) {
-        logger.warn("Transaction exhausted {} attempts, last failure: {}", attempts, failure);
-      }
     }
-    span.end();
+  }
+
+  private void logIfExhausted(
+      String operationLabel, Outcome outcome, int attempts, Throwable failure) {
+    if (outcome == Outcome.RETRIES_EXHAUSTED) {
+      logger.warn("{} exhausted {} attempts, last failure: {}", operationLabel, attempts, failure);
+    }
+  }
+
+  private void recordDuration(Duration duration, Attributes attributes) {
+    durationHistogram.record(duration.toNanos() / 1_000_000_000.0, attributes);
+  }
+
+  private void logIfSlow(String label, Duration duration) {
+    if (duration.compareTo(slowQueryLogThreshold) > 0) {
+      logger.warn(
+          "Slow query detected: {} took {} seconds", label, duration.toNanos() / 1_000_000_000.0);
+    }
   }
 
   Span startHealthCheckSpan() {
@@ -419,6 +503,7 @@ final class Telemetry {
         .spanBuilder("healthCheck")
         .setSpanKind(SpanKind.CLIENT)
         .setAttribute(DB_SYSTEM_NAME, DB_SYSTEM)
+        .setAttribute(ARTIFACT_NAME, artifactName)
         .startSpan();
   }
 
@@ -439,6 +524,7 @@ final class Telemetry {
               .spanBuilder("session.close")
               .setSpanKind(SpanKind.INTERNAL)
               .setAttribute(CLOSE_CONNECTIONS_REMAINING, (long) remainingConnections)
+              .setAttribute(ARTIFACT_NAME, artifactName)
               .startSpan();
       try {
         span.setStatus(
@@ -446,6 +532,9 @@ final class Telemetry {
             remainingConnections > 0
                 ? remainingConnections + " active connection(s) remained at close deadline"
                 : null);
+        if (remainingConnections > 0) {
+          logger.warn("{} active connection(s) remained at close deadline", remainingConnections);
+        }
       } finally {
         span.end();
       }
