@@ -301,7 +301,7 @@ public final class TransactionObservability {
       StatementObservability leaf =
           StatementObservability.forStatement(
               tracer, durationHistogram, logger, dbUser, slowQueryLogThreshold, statement, span);
-      return leaf.execute(() -> statement.executeOn(connection));
+      return leaf.execute(() -> statement.execute(connection));
     }
 
     @Override
@@ -338,6 +338,12 @@ public final class TransactionObservability {
     @Override
     public void rollback(Savepoint savepoint) throws SQLException {
       delegate.rollback(savepoint);
+    }
+
+    @Override
+    public void rollback() throws SQLException {
+      rollbackCount++;
+      delegate.rollback();
     }
 
     @Override
@@ -379,12 +385,6 @@ public final class TransactionObservability {
     public void commit() throws SQLException {
       commitCalled = true;
       delegate.commit();
-    }
-
-    @Override
-    public void rollback() throws SQLException {
-      rollbackCount++;
-      delegate.rollback();
     }
 
     /**

@@ -33,8 +33,8 @@ public interface Transaction<R> {
    * @return the result of {@link #run}
    * @throws SQLException if a database access error occurs while executing the transaction
    */
-  default R executeOn(TransactionContext context) throws SQLException {
-    return executeOn(context, TransactionSettings.SERIALIZABLE_WRITE);
+  default R execute(TransactionContext context) throws SQLException {
+    return execute(context, TransactionSettings.SERIALIZABLE_WRITE);
   }
 
   /**
@@ -50,8 +50,7 @@ public interface Transaction<R> {
    * @return the result of {@link #run}
    * @throws SQLException if a database access error occurs while executing the transaction
    */
-  default R executeOn(TransactionContext context, TransactionSettings settings)
-      throws SQLException {
+  default R execute(TransactionContext context, TransactionSettings settings) throws SQLException {
     Objects.requireNonNull(context, "context");
     Objects.requireNonNull(settings, "settings");
 
@@ -188,7 +187,7 @@ public interface Transaction<R> {
    * <p>Runs this transaction under a savepoint. On success, releases the savepoint and returns the
    * result. On a {@link SQLException} whose SQLSTATE is {@code 40001} (serialization failure) or
    * {@code 40P01} (deadlock detected), rethrows it untouched: those failures are transaction-wide
-   * and a savepoint rollback cannot heal them, so they must reach {@link #executeOn}'s retry loop
+   * and a savepoint rollback cannot heal them, so they must reach {@link #execute}'s retry loop
    * instead. On any other failure &mdash; a {@link SQLException} with a different SQLSTATE, an
    * unchecked exception, or an {@link Error} &mdash; rolls back to the savepoint and releases it
    * (PostgreSQL keeps a savepoint alive after rolling back to it, so it must be released explicitly

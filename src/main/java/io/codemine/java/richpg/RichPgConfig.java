@@ -478,6 +478,11 @@ public record RichPgConfig(
         + ']';
   }
 
+  /**
+   * Builds a {@link HikariDataSource} configured from this config's connection and pool settings.
+   *
+   * @return a new HikariCP-backed data source
+   */
   public HikariDataSource toHikariDataSource() {
     HikariConfig hc = new HikariConfig();
     hc.setJdbcUrl(jdbcUrl);

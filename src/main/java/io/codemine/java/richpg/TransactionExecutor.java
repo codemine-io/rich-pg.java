@@ -60,7 +60,7 @@ public final class TransactionExecutor {
     var observation = observability.observe(settings, connection, parentSpan);
     try {
       try (var scope = observation.span().makeCurrent()) {
-        R result = transaction.executeOn(observation, settings);
+        R result = transaction.execute(observation, settings);
         observation.markCommitted();
         return result;
       }

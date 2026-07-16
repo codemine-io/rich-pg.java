@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * The transaction-boundary control surface used by {@link Transaction#executeOn}. It extends {@link
+ * The transaction-boundary control surface used by {@link Transaction#execute}. It extends {@link
  * ExecutionContext} with the commit/rollback and connection-state operations that only the executor
  * should manage; transaction bodies receive only the safer {@link ExecutionContext}. Every member
  * is abstract by design: implementors must explicitly provide each behavior rather than inherit a
@@ -92,7 +92,7 @@ public interface TransactionContext extends ExecutionContext {
     return new TransactionContext() {
       @Override
       public <R> R execute(Statement<R> statement) throws SQLException {
-        return statement.executeOn(connection);
+        return statement.execute(connection);
       }
 
       @Override

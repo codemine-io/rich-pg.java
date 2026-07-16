@@ -72,9 +72,7 @@ final class StatementExecutor {
         Connection attemptConnection = connection;
         try {
           R result =
-              observation
-                  .forAttempt(statement)
-                  .execute(() -> statement.executeOn(attemptConnection));
+              observation.forAttempt(statement).execute(() -> statement.execute(attemptConnection));
           observation.markSucceeded(attempt);
           return result;
         } catch (SQLException failure) {

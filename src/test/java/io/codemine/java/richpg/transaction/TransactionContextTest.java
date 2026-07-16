@@ -286,7 +286,7 @@ public class TransactionContextTest {
     }
 
     @Override
-    public String executeOn(Connection conn) {
+    public String execute(Connection conn) {
       this.seenConnection = conn;
       return "ok";
     }

@@ -258,7 +258,7 @@ class SessionIT extends AbstractDatabaseIT {
     }
 
     @Override
-    public String executeOn(java.sql.Connection connection) {
+    public String execute(java.sql.Connection connection) {
       return "one";
     }
   }

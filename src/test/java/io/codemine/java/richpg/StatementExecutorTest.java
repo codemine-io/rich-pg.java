@@ -316,7 +316,7 @@ class StatementExecutorTest {
     }
 
     @Override
-    public String executeOn(Connection conn) throws SQLException {
+    public String execute(Connection conn) throws SQLException {
       connectionsUsed.add(conn);
       SQLException next = script.poll();
       if (next != null) {

@@ -88,7 +88,7 @@ public class Session implements AutoCloseable {
     try (Connection connection = dataSource.getConnection()) {
       return observability
           .forStatement(statement, parentSpan)
-          .execute(() -> statement.executeOn(connection));
+          .execute(() -> statement.execute(connection));
     }
   }
 
