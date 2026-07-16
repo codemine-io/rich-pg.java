@@ -1,6 +1,6 @@
 # Design revision plan
 
-Status: agreed, not yet implemented.
+Status: implemented.
 
 This document captures the agreed redesign of rich-pg. The current design was
 assessed as noisy (config boilerplate, overload combinatorics, duplicated

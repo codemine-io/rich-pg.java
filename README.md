@@ -20,10 +20,10 @@ callers can focus on their own statements and domain types.
 
 ## Features
 
-- **Connection pooling** via HikariCP, configured from a single `RichPgConfig` record
+- **Connection pooling** via HikariCP, configured from a single `SessionSettings` record
 - **Resilient transactions** - automatic retry on serialization failures and
   deadlocks (SQLSTATE `40001`, `40P01`, `23505`), with configurable isolation
-  level, read-only flag, and max attempts
+  level and read-only flag
 - **Statement execution** built on `io.codemine.java.postgresql:jdbc`'s
   `Statement<R>` abstraction
 - **OpenTelemetry tracing** - a `CLIENT` span per statement/batch, an
@@ -57,10 +57,10 @@ This module depends on [`io.codemine.java.postgresql:jdbc`](https://github.com/c
 ### Opening a session
 
 ```java
-import io.codemine.java.richpg.RichPgConfig;
+import io.codemine.java.richpg.SessionSettings;
 import io.codemine.java.richpg.Session;
 
-RichPgConfig config = RichPgConfig
+SessionSettings config = SessionSettings
         .defaults("jdbc:postgresql://localhost:5432/mydb", "postgres", "postgres")
         .withMaximumPoolSize(20)
         .withPoolName("my-service-pool")
@@ -71,11 +71,11 @@ try (Session session = new Session(config)) {
 }
 ```
 
-`RichPgConfig.defaults(jdbcUrl, user, password)` returns a config with a
-pool size of 10, a 30-second connection/statement timeout, 3 transaction
-retry attempts, a 1-second slow-query-log threshold, and the global
-`OpenTelemetry` instance - override any of it with the `with*` methods
-shown above.
+`SessionSettings.defaults(jdbcUrl, user, password)` returns a config with a
+pool size of 10, a 30-second connection/statement timeout, 7 transaction and statement
+retry attempts, a 1-second slow-query-log threshold, a 2-second health-check timeout,
+a 10-second close drain deadline, and the global `OpenTelemetry` instance - override
+any of it with the `with*` methods shown above.
 
 ### Executing a statement
 
@@ -100,9 +100,9 @@ int updated = session.executeTransaction(context -> {
 ```
 
 Transactions default to `SERIALIZABLE` isolation, read-write, and
-`config.transactionRetryAttempts()` attempts; pass an explicit
+the configured retry attempts from `SessionSettings`; pass an explicit
 `TransactionSettings` to `executeTransaction(transaction, settings)` to
-override any of those per call.
+override isolation level or read-only flag per call.
 
 ### Health checks and shutdown
 
