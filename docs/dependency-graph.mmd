@@ -1,0 +1,70 @@
+%% rich-pg.java module dependency graph
+%% Nodes are Java classes under src/main/java/io/codemine/java/richpg/.
+%% Edges point from a module to what it depends on.
+flowchart LR
+  subgraph session["session"]
+    Session["Session<br/><small>owns pool, execute/executeTransaction</small>"]
+    SessionSettings["SessionSettings<br/><small>conn/pool/observability config</small>"]
+  end
+
+  subgraph transaction["transaction"]
+    TransactionExecutor["TransactionExecutor<br/><small>retry loop over Transaction</small>"]
+    Transaction["Transaction<br/><small>unit of work, pure & re-runnable</small>"]
+    TransactionContext["TransactionContext<br/><small>commit/rollback control surface</small>"]
+    ExecutionContext["ExecutionContext<br/><small>execute + savepoints in-tx</small>"]
+    TransactionSettings["TransactionSettings<br/><small>isolation level + read-only flag</small>"]
+  end
+
+  subgraph statement["statement"]
+    StatementExecutor["StatementExecutor<br/><small>executes one Statement, retries</small>"]
+    ConnectionSupplier["ConnectionSupplier<br/><small>supplies a JDBC connection</small>"]
+  end
+
+  subgraph support["support"]
+    RetryStrategy["RetryStrategy<br/><small>same/new-connection/no-retry decision</small>"]
+    ClassifiedSqlFailure["ClassifiedSqlFailure<br/><small>wraps failure + extracted SQLSTATE</small>"]
+    IsolationLevel["IsolationLevel<br/><small>PG isolation levels → JDBC</small>"]
+    Telemetry["Telemetry<br/><small>logger, OTel traces & metrics</small>"]
+  end
+
+  Session --> IsolationLevel
+  Session --> SessionSettings
+  Session --> StatementExecutor
+  Session --> Telemetry
+  Session --> Transaction
+  Session --> TransactionExecutor
+  Session --> TransactionSettings
+
+  SessionSettings --> Session
+
+  StatementExecutor --> ConnectionSupplier
+  StatementExecutor --> RetryStrategy
+  StatementExecutor --> Telemetry
+
+  TransactionExecutor --> ClassifiedSqlFailure
+  TransactionExecutor --> ExecutionContext
+  TransactionExecutor --> Telemetry
+  TransactionExecutor --> Transaction
+  TransactionExecutor --> TransactionContext
+  TransactionExecutor --> TransactionSettings
+
+  Transaction --> ClassifiedSqlFailure
+  Transaction --> ExecutionContext
+  Transaction --> TransactionContext
+
+  TransactionContext --> ExecutionContext
+  TransactionContext --> Transaction
+
+  ExecutionContext --> Transaction
+
+  TransactionSettings --> IsolationLevel
+  TransactionSettings --> Transaction
+
+  IsolationLevel --> Transaction
+
+  RetryStrategy --> ClassifiedSqlFailure
+
+  Telemetry --> Session
+  Telemetry --> SessionSettings
+  Telemetry --> Transaction
+  Telemetry --> TransactionSettings
