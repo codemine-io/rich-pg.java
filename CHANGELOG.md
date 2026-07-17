@@ -10,6 +10,7 @@
 - `StatementSettings` deleted entirely. Per-call retry attempt override no longer exists.
 - `Session.executeRetryable` deleted. `Session.execute` always retries — there is no non-retrying entry point.
 - The `io.codemine.java.richpg.observability` package is deleted. Telemetry is now internal to a single package-private `Telemetry` class. Span/metric shape changed: standalone retried statements get one `CLIENT` span with per-attempt failure span events; statements inside transactions get single-attempt `CLIENT` spans with no retry events.
+- Batch execution's statement-batching helper moved from `postgresql-jdbc`'s public `StatementBatch` to an internal, package-private class in `rich-pg`. `executeBatch` now also rejects a batch whose statements disagree on `operationName()`/`collectionName()`, not just `sql()`.
 
 ## Fixes
 

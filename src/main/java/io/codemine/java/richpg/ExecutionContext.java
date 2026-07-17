@@ -28,15 +28,16 @@ public interface ExecutionContext {
   /**
    * Executes {@code statements} as a single JDBC batch.
    *
-   * <p>All statements must use the same SQL text and must not return rows. Violations cause an
-   * {@link IllegalArgumentException}, which is not caught by {@link Transaction}'s retry loop.
+   * <p>All statements must use the same SQL text, operation name, and collection name, and must not
+   * return rows. Violations cause an {@link IllegalArgumentException}, which is not caught by
+   * {@link Transaction}'s retry loop.
    *
    * @param statements the statements to execute in batch
    * @param <R> the statement result type
    * @return the decoded results, in the same order as the input statements
    * @throws SQLException if a database access error occurs during execution
    * @throws IllegalArgumentException if the statements are null, contain a null element, return
-   *     rows, or use different SQL text
+   *     rows, or use different SQL text, operation name, or collection name
    */
   <R> List<R> executeBatch(Iterable<? extends Statement<R>> statements) throws SQLException;
 

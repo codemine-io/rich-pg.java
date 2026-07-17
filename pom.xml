@@ -63,7 +63,7 @@
         <dependency>
             <groupId>com.github.codemine-io</groupId>
             <artifactId>postgresql-jdbc.java</artifactId>
-            <version>1867b067aad88dc08bbcc5e6418567fb9b225ab9</version>
+            <version>49173e9ae37c86d0f950a2f0d6674cad158c3570</version>
         </dependency>
 
         <dependency>

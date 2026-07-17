@@ -1,11 +1,9 @@
 package io.codemine.java.richpg;
 
 import io.codemine.java.postgresql.jdbc.Statement;
-import io.codemine.java.postgresql.jdbc.StatementBatch;
 import io.opentelemetry.api.trace.Span;
 import java.sql.SQLException;
 import java.sql.Savepoint;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -31,15 +29,10 @@ final class NestedExecutionContext implements ExecutionContext {
 
   @Override
   public <R> List<R> executeBatch(Iterable<? extends Statement<R>> statements) throws SQLException {
-    List<Statement<R>> list = new ArrayList<>();
-    statements.forEach(list::add);
-    if (list.isEmpty()) {
-      return List.of();
-    }
-    StatementBatch<R> batch = new StatementBatch<>(list);
+    StatementBatch<R> batch = new StatementBatch<>(statements);
     return traced(
-        telemetry.startBatch(batch, list.get(0), transactionSpan),
-        () -> delegate.executeBatch(list));
+        telemetry.startBatch(batch, transactionSpan),
+        () -> delegate.executeBatch(batch.statements()));
   }
 
   private <R> R traced(Telemetry.StatementHandle handle, SqlSupplier<R> action)

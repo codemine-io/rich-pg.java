@@ -1,7 +1,6 @@
 package io.codemine.java.richpg;
 
 import io.codemine.java.postgresql.jdbc.Statement;
-import io.codemine.java.postgresql.jdbc.StatementBatch;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Savepoint;

@@ -2,7 +2,6 @@ package io.codemine.java.richpg;
 
 import com.zaxxer.hikari.HikariPoolMXBean;
 import io.codemine.java.postgresql.jdbc.Statement;
-import io.codemine.java.postgresql.jdbc.StatementBatch;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.DoubleHistogram;
@@ -250,13 +249,12 @@ final class Telemetry {
   }
 
   /** Starts a batch CLIENT span (covers all attempts). */
-  StatementHandle startBatch(
-      StatementBatch<?> batch, Statement<?> representative, Span parentSpan) {
+  StatementHandle startBatch(StatementBatch<?> batch, Span parentSpan) {
     return startStatementSpan(
         "batch",
         batch.sql(),
-        representative.operationName(),
-        representative.collectionName(),
+        batch.operationName(),
+        batch.collectionName(),
         batch.size(),
         parentSpan);
   }
