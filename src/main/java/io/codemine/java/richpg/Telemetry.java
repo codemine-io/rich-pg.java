@@ -48,6 +48,10 @@ final class Telemetry {
       AttributeKey.stringKey("db.collection.name");
   private static final AttributeKey<String> STATEMENT_NAME =
       AttributeKey.stringKey("pgenie.statement.name");
+  private static final AttributeKey<String> OPERATION_TYPE =
+      AttributeKey.stringKey("pgenie.operation.type");
+  private static final AttributeKey<String> TRANSACTION_NAME =
+      AttributeKey.stringKey("pgenie.transaction.name");
   private static final AttributeKey<String> DB_USER = AttributeKey.stringKey("pgenie.db.user");
   private static final AttributeKey<Long> BATCH_SIZE =
       AttributeKey.longKey("db.operation.batch.size");
@@ -75,6 +79,10 @@ final class Telemetry {
   private static final AttributeKey<Long> ATTEMPT_NUMBER = AttributeKey.longKey("attempt.number");
   private static final AttributeKey<Double> ATTEMPT_DURATION_SECONDS =
       AttributeKey.doubleKey("attempt.duration_seconds");
+
+  static final String OPERATION_TYPE_STATEMENT = "statement";
+  static final String OPERATION_TYPE_BATCH = "batch";
+  static final String OPERATION_TYPE_TRANSACTION = "transaction";
 
   static final String OUTCOME_SUCCEEDED = "succeeded";
   static final String OUTCOME_COMMITTED = "committed";
@@ -137,6 +145,10 @@ final class Telemetry {
             .histogramBuilder(METRIC_NAME)
             .setUnit("s")
             .setDescription("Duration of database client operations")
+            // OTel semconv boundaries for db.client.operation.duration; the SDK default
+            // boundaries are millisecond-scaled and collapse second-unit values into one bucket.
+            .setExplicitBucketBoundariesAdvice(
+                List.of(0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0))
             .build();
     LongCounter statementRetries =
         meter
@@ -245,6 +257,7 @@ final class Telemetry {
         statement.operationName(),
         statement.collectionName(),
         null,
+        OPERATION_TYPE_STATEMENT,
         parentSpan);
   }
 
@@ -256,6 +269,7 @@ final class Telemetry {
         batch.operationName(),
         batch.collectionName(),
         batch.size(),
+        OPERATION_TYPE_BATCH,
         parentSpan);
   }
 
@@ -265,6 +279,7 @@ final class Telemetry {
       Optional<String> operationName,
       Optional<String> collectionName,
       Integer batchSize,
+      String operationType,
       Span parentSpan) {
     var builder =
         newSpanBuilder(statementName, SpanKind.CLIENT, parentSpan)
@@ -277,7 +292,7 @@ final class Telemetry {
       builder.setAttribute(BATCH_SIZE, (long) batchSize);
     }
     return new StatementHandle(
-        builder.startSpan(), statementName, sql, operationName, collectionName);
+        builder.startSpan(), statementName, sql, operationName, collectionName, operationType);
   }
 
   /** A started statement span plus what's needed to record its duration/outcome. */
@@ -287,6 +302,7 @@ final class Telemetry {
     private final String sql;
     private final Optional<String> operationName;
     private final Optional<String> collectionName;
+    private final String operationType;
     private final long startNanos = System.nanoTime();
 
     private StatementHandle(
@@ -294,12 +310,14 @@ final class Telemetry {
         String statementName,
         String sql,
         Optional<String> operationName,
-        Optional<String> collectionName) {
+        Optional<String> collectionName,
+        String operationType) {
       this.span = span;
       this.statementName = statementName;
       this.sql = sql;
       this.operationName = operationName;
       this.collectionName = collectionName;
+      this.operationType = operationType;
     }
 
     Span span() {
@@ -331,7 +349,8 @@ final class Telemetry {
           Attributes.builder()
               .put(DB_SYSTEM_NAME, DB_SYSTEM)
               .put(DB_QUERY_TEXT, sql)
-              .put(STATEMENT_NAME, statementName);
+              .put(STATEMENT_NAME, statementName)
+              .put(OPERATION_TYPE, operationType);
       operationName.ifPresent(v -> attrs.put(DB_OPERATION_NAME, v));
       collectionName.ifPresent(v -> attrs.put(DB_COLLECTION_NAME, v));
       return attrs.build();
@@ -396,21 +415,40 @@ final class Telemetry {
     public void close() {
       Duration duration = Duration.ofNanos(System.nanoTime() - startNanos);
       recordDuration(
-          duration, Attributes.of(DB_SYSTEM_NAME, DB_SYSTEM, STATEMENT_NAME, statementName));
+          duration,
+          Attributes.of(
+              DB_SYSTEM_NAME,
+              DB_SYSTEM,
+              STATEMENT_NAME,
+              statementName,
+              OPERATION_TYPE,
+              OPERATION_TYPE_STATEMENT));
       logIfSlow(statementName, duration);
       span.end();
     }
   }
 
-  /** Starts the INTERNAL transaction operation span, covering all attempts. */
+  /**
+   * Starts the INTERNAL transaction operation span, covering all attempts.
+   *
+   * <p>When {@code transactionName} is non-null it becomes the span name and is recorded as the
+   * {@code pgenie.transaction.name} attribute on both the span and the duration metric; otherwise
+   * the span is named {@code "transaction"} and no name attribute is recorded.
+   */
   TransactionOperationHandle startTransactionOperation(
-      TransactionSettings settings, int maxAttempts, Span parentSpan) {
+      TransactionMode mode, String transactionName, int maxAttempts, Span parentSpan) {
     var builder =
-        newSpanBuilder("transaction", SpanKind.INTERNAL, parentSpan)
-            .setAttribute(ISOLATION_LEVEL, settings.isolationLevel().name())
-            .setAttribute(READ_ONLY, settings.readOnly())
+        newSpanBuilder(
+                transactionName != null ? transactionName : "transaction",
+                SpanKind.INTERNAL,
+                parentSpan)
+            .setAttribute(ISOLATION_LEVEL, mode.isolationLevel().name())
+            .setAttribute(READ_ONLY, mode.readOnly())
             .setAttribute(MAX_ATTEMPTS_TXN, (long) maxAttempts);
-    return new TransactionOperationHandle(builder.startSpan());
+    if (transactionName != null) {
+      builder.setAttribute(TRANSACTION_NAME, transactionName);
+    }
+    return new TransactionOperationHandle(builder.startSpan(), transactionName);
   }
 
   /**
@@ -421,10 +459,12 @@ final class Telemetry {
    */
   final class TransactionOperationHandle implements AutoCloseable {
     private final Span span;
+    private final String transactionName;
     private final long startNanos = System.nanoTime();
 
-    private TransactionOperationHandle(Span span) {
+    private TransactionOperationHandle(Span span, String transactionName) {
       this.span = span;
+      this.transactionName = transactionName;
     }
 
     Span span() {
@@ -447,8 +487,15 @@ final class Telemetry {
     @Override
     public void close() {
       Duration duration = Duration.ofNanos(System.nanoTime() - startNanos);
-      recordDuration(duration, Attributes.of(DB_SYSTEM_NAME, DB_SYSTEM));
-      logIfSlow("transaction", duration);
+      var attrs =
+          Attributes.builder()
+              .put(DB_SYSTEM_NAME, DB_SYSTEM)
+              .put(OPERATION_TYPE, OPERATION_TYPE_TRANSACTION);
+      if (transactionName != null) {
+        attrs.put(TRANSACTION_NAME, transactionName);
+      }
+      recordDuration(duration, attrs.build());
+      logIfSlow(transactionName != null ? transactionName : "transaction", duration);
       span.end();
     }
   }
@@ -483,7 +530,13 @@ final class Telemetry {
   private void logIfExhausted(
       String operationLabel, Outcome outcome, int attempts, Throwable failure) {
     if (outcome == Outcome.RETRIES_EXHAUSTED) {
-      logger.warn("{} exhausted {} attempts, last failure: {}", operationLabel, attempts, failure);
+      // failure.toString(), not the throwable itself: passing the throwable would dump a full
+      // stack trace per exhaustion, which under sustained contention floods the console.
+      logger.warn(
+          "{} exhausted {} attempts, last failure: {}",
+          operationLabel,
+          attempts,
+          String.valueOf(failure));
     }
   }
 

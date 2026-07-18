@@ -12,6 +12,9 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -36,6 +39,8 @@ public class Session implements AutoCloseable {
   private final Telemetry telemetry;
 
   private final AtomicBoolean closed = new AtomicBoolean(false);
+  private final ScheduledExecutorService healthCheckExecutor;
+  private volatile boolean healthy;
 
   /**
    * Opens a session from the given settings.
@@ -50,16 +55,19 @@ public class Session implements AutoCloseable {
     this.settings = Objects.requireNonNull(settings, "settings");
     this.dataSource = settings.toHikariDataSource();
     this.telemetry = Telemetry.forSession(settings, dataSource.getHikariPoolMXBean());
+    this.healthCheckExecutor = startHealthCheckProbe();
   }
 
   /**
    * Package-private constructor for testing — uses a pre-built data source instead of creating one
-   * from settings.
+   * from settings, and does not start the background health probe so mocked connections aren't
+   * consumed by it.
    */
   Session(SessionSettings settings, HikariDataSource dataSource) {
     this.settings = Objects.requireNonNull(settings, "settings");
     this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
     this.telemetry = Telemetry.forSession(settings, dataSource.getHikariPoolMXBean());
+    this.healthCheckExecutor = null;
   }
 
   /**
@@ -138,62 +146,81 @@ public class Session implements AutoCloseable {
   }
 
   /**
-   * Execute a transaction using default settings derived from the session settings.
+   * Execute a transaction with the default mode.
    *
-   * <p>The default isolation level is {@link IsolationLevel#SERIALIZABLE} and the transaction is
-   * read-write. The transaction span is parented to the current OpenTelemetry span, if any.
+   * <p>The default mode is {@link TransactionMode#SERIALIZABLE_WRITE}. The transaction span is
+   * parented to the current OpenTelemetry span, if any.
    *
    * @param transaction the transaction to execute
    * @return the transaction result
    * @throws SQLException if a database access error occurs
    */
   public <R> R executeTransaction(Transaction<R> transaction) throws SQLException {
-    return executeTransaction(transaction, TransactionSettings.SERIALIZABLE_WRITE, Span.current());
+    return executeTransaction(
+        null, TransactionMode.SERIALIZABLE_WRITE, Span.current(), transaction);
   }
 
   /**
-   * Execute a transaction with the supplied settings.
+   * Execute a transaction with the supplied mode.
    *
+   * @param mode the transaction mode
    * @param transaction the transaction to execute
-   * @param transactionSettings the transaction settings
    * @return the transaction result
    * @throws SQLException if a database access error occurs
    */
-  public <R> R executeTransaction(
-      Transaction<R> transaction, TransactionSettings transactionSettings) throws SQLException {
-    return executeTransaction(transaction, transactionSettings, Span.current());
+  public <R> R executeTransaction(TransactionMode mode, Transaction<R> transaction)
+      throws SQLException {
+    return executeTransaction(null, mode, Span.current(), transaction);
   }
 
   /**
-   * Execute a transaction with the supplied settings and an explicit parent span.
+   * Execute a named transaction with the supplied mode.
+   *
+   * <p>The name becomes the transaction span's name and is recorded as the {@code
+   * pgenie.transaction.name} attribute on the span and the duration metric.
+   *
+   * @param name the transaction name
+   * @param mode the transaction mode
+   * @param transaction the transaction to execute
+   * @return the transaction result
+   * @throws SQLException if a database access error occurs
+   */
+  public <R> R executeTransaction(String name, TransactionMode mode, Transaction<R> transaction)
+      throws SQLException {
+    Objects.requireNonNull(name, "name");
+    return executeTransaction(name, mode, Span.current(), transaction);
+  }
+
+  /**
+   * Execute a named transaction with the supplied mode and an explicit parent span.
    *
    * <p>The transaction body receives an instrumented execution context whose statements are traced
    * as children of the transaction span.
    *
-   * @param transaction the transaction to execute
-   * @param transactionSettings the transaction settings
+   * @param name the transaction name
+   * @param mode the transaction mode
    * @param parentSpan the parent span for the transaction trace
+   * @param transaction the transaction to execute
    * @return the transaction result
    * @throws SQLException if a database access error occurs
    */
   public <R> R executeTransaction(
-      Transaction<R> transaction, TransactionSettings transactionSettings, Span parentSpan)
+      String name, TransactionMode mode, Span parentSpan, Transaction<R> transaction)
       throws SQLException {
     ensureOpen();
     Objects.requireNonNull(transaction, "transaction");
-    Objects.requireNonNull(transactionSettings, "transactionSettings");
+    Objects.requireNonNull(mode, "mode");
 
     try (Connection connection = dataSource.getConnection()) {
       try (Telemetry.TransactionOperationHandle operation =
-          telemetry.startTransactionOperation(
-              transactionSettings, settings.retryAttempts(), parentSpan)) {
+          telemetry.startTransactionOperation(mode, name, settings.retryAttempts(), parentSpan)) {
         boolean originalAutoCommit = connection.getAutoCommit();
         int originalIsolation = connection.getTransactionIsolation();
         boolean originalReadOnly = connection.isReadOnly();
 
         connection.setAutoCommit(false);
-        connection.setTransactionIsolation(transactionSettings.isolationLevel().jdbcLevel());
-        connection.setReadOnly(transactionSettings.readOnly());
+        connection.setTransactionIsolation(mode.isolationLevel().jdbcLevel());
+        connection.setReadOnly(mode.readOnly());
 
         try (var scope = operation.span().makeCurrent()) {
           ExecutionContext instrumentedContext =
@@ -244,25 +271,52 @@ public class Session implements AutoCloseable {
   }
 
   /**
-   * Perform a short-timeout health check by round-tripping the database.
+   * Report the cached result of the background health probe.
    *
-   * @return {@code true} if the database round-trip succeeds, {@code false} otherwise
+   * <p>A daemon thread probes the database every {@link SessionSettings#healthCheckPeriod()} by
+   * round-tripping {@code select 1} on a connection borrowed from the pool, bounded by {@link
+   * SessionSettings#healthCheckTimeout()}. Because the probe competes for a pooled connection like
+   * any caller, a saturated or unreachable pool degrades the health state — matching
+   * readiness-probe semantics ("can this instance serve traffic?") rather than bare database
+   * reachability. An eager first probe runs at session open; this method never touches the pool on
+   * the calling thread.
+   *
+   * @return {@code true} if the most recent probe's database round-trip succeeded
    */
   public boolean healthCheck() {
+    return healthy;
+  }
+
+  /** Runs the eager first probe, then schedules the periodic probe on a daemon thread. */
+  private ScheduledExecutorService startHealthCheckProbe() {
+    probe();
+    ScheduledExecutorService executor =
+        Executors.newSingleThreadScheduledExecutor(
+            runnable -> {
+              Thread thread = new Thread(runnable, settings.poolName() + "-health-check");
+              thread.setDaemon(true);
+              return thread;
+            });
+    long periodMillis = settings.healthCheckPeriod().toMillis();
+    executor.scheduleAtFixedRate(this::probe, periodMillis, periodMillis, TimeUnit.MILLISECONDS);
+    return executor;
+  }
+
+  /** One probe round-trip on a pooled connection; emits a healthCheck span, updates the cache. */
+  private void probe() {
     Span span = telemetry.startHealthCheckSpan();
 
     try (Connection connection = dataSource.getConnection();
         PreparedStatement preparedStatement = connection.prepareStatement("select 1")) {
       preparedStatement.setQueryTimeout((int) settings.healthCheckTimeout().toSeconds());
       try (ResultSet resultSet = preparedStatement.executeQuery()) {
-        boolean ok = resultSet.next();
+        healthy = resultSet.next();
         span.setStatus(StatusCode.OK);
-        return ok;
       }
-    } catch (SQLException e) {
+    } catch (Exception e) {
+      healthy = false;
       span.recordException(e);
       span.setStatus(StatusCode.ERROR, e.getMessage());
-      return false;
     } finally {
       span.end();
     }
@@ -280,6 +334,11 @@ public class Session implements AutoCloseable {
     if (!closed.compareAndSet(false, true)) {
       return;
     }
+
+    if (healthCheckExecutor != null) {
+      healthCheckExecutor.shutdownNow();
+    }
+    healthy = false;
 
     Telemetry.CloseHandle close = telemetry.startClose();
 

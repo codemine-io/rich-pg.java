@@ -43,6 +43,7 @@ class SessionSettingsTest {
   void defaultsSetHealthCheckTimeoutAndCloseDrainDeadline() {
     SessionSettings s = SessionSettings.defaults("jdbc:postgresql://h/db", "u", "p");
     assertThat(s.healthCheckTimeout()).isEqualTo(Duration.ofSeconds(2));
+    assertThat(s.healthCheckPeriod()).isEqualTo(Duration.ofSeconds(10));
     assertThat(s.closeDrainDeadline()).isEqualTo(Duration.ofSeconds(10));
   }
 
@@ -133,6 +134,14 @@ class SessionSettingsTest {
   @Test
   void healthCheckTimeoutMustNotBeNegative() {
     assertThatThrownBy(() -> defaults().withHealthCheckTimeout(Duration.ofSeconds(-1)))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void healthCheckPeriodMustBePositive() {
+    assertThatThrownBy(() -> defaults().withHealthCheckPeriod(Duration.ZERO))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> defaults().withHealthCheckPeriod(Duration.ofSeconds(-1)))
         .isInstanceOf(IllegalArgumentException.class);
   }
 

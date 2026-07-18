@@ -7,38 +7,35 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
-/** Unit tests for {@link TransactionSettings}. */
-public class TransactionSettingsTest {
+/** Unit tests for {@link TransactionMode}. */
+public class TransactionModeTest {
 
   @Test
   void defaultUsesSerializableIsolationAndIsNotReadOnly() {
-    assertEquals(
-        IsolationLevel.SERIALIZABLE, TransactionSettings.SERIALIZABLE_WRITE.isolationLevel());
-    assertFalse(TransactionSettings.SERIALIZABLE_WRITE.readOnly());
+    assertEquals(IsolationLevel.SERIALIZABLE, TransactionMode.SERIALIZABLE_WRITE.isolationLevel());
+    assertFalse(TransactionMode.SERIALIZABLE_WRITE.readOnly());
   }
 
   @Test
   void withIsolationLevelReturnsModifiedCopyWithoutMutatingOriginal() {
-    TransactionSettings modified =
-        TransactionSettings.SERIALIZABLE_WRITE.withIsolationLevel(IsolationLevel.READ_COMMITTED);
+    TransactionMode modified =
+        TransactionMode.SERIALIZABLE_WRITE.withIsolationLevel(IsolationLevel.READ_COMMITTED);
 
     assertEquals(IsolationLevel.READ_COMMITTED, modified.isolationLevel());
-    assertEquals(
-        IsolationLevel.SERIALIZABLE, TransactionSettings.SERIALIZABLE_WRITE.isolationLevel());
+    assertEquals(IsolationLevel.SERIALIZABLE, TransactionMode.SERIALIZABLE_WRITE.isolationLevel());
   }
 
   @Test
   void withReadOnlyReturnsModifiedCopyWithoutMutatingOriginal() {
-    TransactionSettings modified = TransactionSettings.SERIALIZABLE_WRITE.withReadOnly(true);
+    TransactionMode modified = TransactionMode.SERIALIZABLE_WRITE.withReadOnly(true);
 
     assertTrue(modified.readOnly());
-    assertFalse(TransactionSettings.SERIALIZABLE_WRITE.readOnly());
+    assertFalse(TransactionMode.SERIALIZABLE_WRITE.readOnly());
   }
 
   @Test
   void constructorRejectsNullIsolationLevel() {
-    var thrown =
-        assertThrows(NullPointerException.class, () -> new TransactionSettings(null, false));
+    var thrown = assertThrows(NullPointerException.class, () -> new TransactionMode(null, false));
     assertEquals("isolationLevel", thrown.getMessage());
   }
 
@@ -47,7 +44,7 @@ public class TransactionSettingsTest {
     var thrown =
         assertThrows(
             NullPointerException.class,
-            () -> TransactionSettings.SERIALIZABLE_WRITE.withIsolationLevel(null));
+            () -> TransactionMode.SERIALIZABLE_WRITE.withIsolationLevel(null));
     assertEquals("level", thrown.getMessage());
   }
 }

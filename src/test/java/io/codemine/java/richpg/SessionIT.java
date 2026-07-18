@@ -115,9 +115,11 @@ class SessionIT extends AbstractDatabaseIT {
   }
 
   @Test
-  void healthCheckReturnsTrueAndEmitsHealthCheckSpan() {
+  void healthCheckReturnsCachedEagerProbeResultAndEmitsHealthCheckSpan() {
     SessionSettings config = config();
     try (Session session = new Session(config)) {
+      // The eager probe at session open already populated the cached state; with the default
+      // 10-second period no further probe runs within this test.
       assertTrue(session.healthCheck());
     }
 
@@ -127,6 +129,33 @@ class SessionIT extends AbstractDatabaseIT {
     assertEquals(SpanKind.CLIENT, span.getKind());
     assertEquals(StatusCode.OK, span.getStatus().getStatusCode());
     assertEquals("postgresql", span.getAttributes().get(DB_SYSTEM_NAME_KEY));
+  }
+
+  @Test
+  void backgroundProbeRepeatsPerHealthCheckPeriodAndStopsOnClose() throws InterruptedException {
+    SessionSettings config = config().withHealthCheckPeriod(java.time.Duration.ofMillis(100));
+    Session session = new Session(config);
+    try {
+      long deadline = System.nanoTime() + SECONDS.toNanos(5);
+      while (healthCheckSpanCount() < 3 && System.nanoTime() < deadline) {
+        Thread.sleep(20);
+      }
+      assertTrue(healthCheckSpanCount() >= 3, "expected repeated background probes");
+    } finally {
+      session.close();
+    }
+
+    assertFalse(session.healthCheck(), "closed session must report unhealthy");
+    long countAtClose = healthCheckSpanCount();
+    Thread.sleep(300);
+    assertEquals(countAtClose, healthCheckSpanCount(), "probe thread must stop on close");
+  }
+
+  private long healthCheckSpanCount() {
+    tracerProvider.forceFlush().join(5, SECONDS);
+    return spanExporter.getFinishedSpanItems().stream()
+        .filter(span -> "healthCheck".equals(span.getName()))
+        .count();
   }
 
   @Test
@@ -145,6 +174,25 @@ class SessionIT extends AbstractDatabaseIT {
     assertEquals(0L, span.getAttributes().get(CLOSE_CONNECTIONS_REMAINING_KEY));
 
     assertTrue(poolGaugeMetrics().isEmpty(), "pool gauges should be unregistered after close");
+  }
+
+  @Test
+  void namedTransactionUsesNameAsSpanNameAndRecordsNameAttribute() throws SQLException {
+    SessionSettings config = config();
+    try (Session session = new Session(config)) {
+      session.executeTransaction(
+          "transfer",
+          TransactionMode.SERIALIZABLE_WRITE,
+          ctx -> ctx.execute(new SelectOneStatement()));
+    }
+
+    flush();
+
+    SpanData span = singleSpanNamed("transfer");
+    assertEquals(SpanKind.INTERNAL, span.getKind());
+    assertEquals(
+        "transfer", span.getAttributes().get(AttributeKey.stringKey("pgenie.transaction.name")));
+    assertEquals("committed", span.getAttributes().get(OUTCOME_KEY));
   }
 
   @Test

@@ -31,8 +31,10 @@ import java.util.Objects;
  *     the statement and transaction retry loops
  * @param slowQueryLogThreshold queries running longer than this threshold are logged as slow
  *     queries; zero logs every query; must not be negative
- * @param healthCheckTimeout maximum time {@link Session#healthCheck()} waits for the database
+ * @param healthCheckTimeout maximum time the background health probe waits for the database
  *     round-trip before failing; must not be negative
+ * @param healthCheckPeriod interval between background health probes; {@link Session#healthCheck()}
+ *     returns the cached result of the most recent probe; must be positive
  * @param closeDrainDeadline maximum time {@link Session#close()} waits for active connections to
  *     drain before forcing pool shutdown; must not be negative
  * @param openTelemetry OpenTelemetry instance used for tracing and metrics
@@ -54,6 +56,7 @@ public record SessionSettings(
     int retryAttempts,
     Duration slowQueryLogThreshold,
     Duration healthCheckTimeout,
+    Duration healthCheckPeriod,
     Duration closeDrainDeadline,
     OpenTelemetry openTelemetry,
     String scopeName,
@@ -81,6 +84,7 @@ public record SessionSettings(
     Objects.requireNonNull(statementTimeout, "statementTimeout");
     Objects.requireNonNull(slowQueryLogThreshold, "slowQueryLogThreshold");
     Objects.requireNonNull(healthCheckTimeout, "healthCheckTimeout");
+    Objects.requireNonNull(healthCheckPeriod, "healthCheckPeriod");
     Objects.requireNonNull(closeDrainDeadline, "closeDrainDeadline");
     Objects.requireNonNull(openTelemetry, "openTelemetry");
     Objects.requireNonNull(scopeName, "scopeName");
@@ -105,6 +109,9 @@ public record SessionSettings(
     if (healthCheckTimeout.isNegative()) {
       throw new IllegalArgumentException("healthCheckTimeout must not be negative");
     }
+    if (healthCheckPeriod.isNegative() || healthCheckPeriod.isZero()) {
+      throw new IllegalArgumentException("healthCheckPeriod must be positive");
+    }
     if (closeDrainDeadline.isNegative()) {
       throw new IllegalArgumentException("closeDrainDeadline must not be negative");
     }
@@ -114,7 +121,8 @@ public record SessionSettings(
    * Creates settings with the given required fields and default values for everything else: a
    * maximum pool size of 10, a 30-second connection timeout, a 30-second statement timeout, 3 retry
    * attempts, a 1-second slow-query-log threshold, a 2-second health-check timeout, a 10-second
-   * close-drain deadline, and the global {@link OpenTelemetry} instance.
+   * health-check period, a 10-second close-drain deadline, and the global {@link OpenTelemetry}
+   * instance.
    *
    * <p>Because this factory has no knowledge of the calling artifact, the instrumentation scope
    * name, scope version, pool name and artifact name are populated with generic, library-level
@@ -141,6 +149,7 @@ public record SessionSettings(
         DEFAULT_RETRY_ATTEMPTS,
         Duration.ofSeconds(1),
         Duration.ofSeconds(2),
+        Duration.ofSeconds(10),
         Duration.ofSeconds(10),
         GlobalOpenTelemetry.get(),
         "io.codemine.java.rich-pg",
@@ -273,6 +282,20 @@ public record SessionSettings(
   }
 
   /**
+   * Returns a copy of this settings instance with the given health-check period.
+   *
+   * @param healthCheckPeriod the period to apply; must be positive
+   * @return a new {@code SessionSettings}
+   * @throws NullPointerException if {@code healthCheckPeriod} is null
+   * @throws IllegalArgumentException if {@code healthCheckPeriod} is not positive
+   */
+  public SessionSettings withHealthCheckPeriod(Duration healthCheckPeriod) {
+    Fields f = fields();
+    f.healthCheckPeriod = healthCheckPeriod;
+    return f.build();
+  }
+
+  /**
    * Returns a copy of this settings instance with the given close-drain deadline.
    *
    * @param closeDrainDeadline the deadline to apply; must not be negative
@@ -362,6 +385,7 @@ public record SessionSettings(
     f.retryAttempts = retryAttempts;
     f.slowQueryLogThreshold = slowQueryLogThreshold;
     f.healthCheckTimeout = healthCheckTimeout;
+    f.healthCheckPeriod = healthCheckPeriod;
     f.closeDrainDeadline = closeDrainDeadline;
     f.openTelemetry = openTelemetry;
     f.scopeName = scopeName;
@@ -386,6 +410,7 @@ public record SessionSettings(
     int retryAttempts;
     Duration slowQueryLogThreshold;
     Duration healthCheckTimeout;
+    Duration healthCheckPeriod;
     Duration closeDrainDeadline;
     OpenTelemetry openTelemetry;
     String scopeName;
@@ -404,6 +429,7 @@ public record SessionSettings(
           retryAttempts,
           slowQueryLogThreshold,
           healthCheckTimeout,
+          healthCheckPeriod,
           closeDrainDeadline,
           openTelemetry,
           scopeName,
@@ -434,6 +460,8 @@ public record SessionSettings(
         + slowQueryLogThreshold
         + ", healthCheckTimeout="
         + healthCheckTimeout
+        + ", healthCheckPeriod="
+        + healthCheckPeriod
         + ", closeDrainDeadline="
         + closeDrainDeadline
         + ", openTelemetry="
