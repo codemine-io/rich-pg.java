@@ -231,7 +231,11 @@ class SessionIT extends AbstractDatabaseIT {
     long transactionSpanCount =
         allSpans.stream().filter(s -> "transaction".equals(s.getName())).count();
     long statementSpanCount =
-        allSpans.stream().filter(s -> SpanKind.CLIENT.equals(s.getKind())).count();
+        allSpans.stream()
+            .filter(s -> SpanKind.CLIENT.equals(s.getKind()))
+            // The eager background health probe at session open emits a CLIENT span too.
+            .filter(s -> !"healthCheck".equals(s.getName()))
+            .count();
     assertEquals(1, transactionSpanCount);
     assertEquals(2, statementSpanCount, "expected one CLIENT statement span per attempt");
   }
