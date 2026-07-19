@@ -3,7 +3,6 @@ package io.codemine.java.richpg;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.codemine.java.postgresql.jdbc.Statement;
 import java.lang.reflect.InvocationHandler;
@@ -41,14 +40,14 @@ public class ConnectionExecutionContextTest {
   }
 
   @Test
-  void executeBatchEmptyReturnsEmptyList() throws Exception {
-    RecordingHandler handler = new RecordingHandler();
+  void executeBatchRejectsEmptyIterable() {
     ConnectionExecutionContext context =
-        new ConnectionExecutionContext(recordingConnection(handler));
+        new ConnectionExecutionContext(recordingConnection(new RecordingHandler()));
 
-    List<Void> result = context.executeBatch(List.of());
+    var thrown =
+        assertThrows(IllegalArgumentException.class, () -> context.executeBatch(List.of()));
 
-    assertTrue(result.isEmpty());
+    assertEquals("Batch must not be empty", thrown.getMessage());
   }
 
   @Test

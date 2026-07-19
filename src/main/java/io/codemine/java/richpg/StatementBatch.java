@@ -10,26 +10,31 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Helper for executing statements as a single JDBC batch. All statements must share the same SQL
- * text, operation name, and collection name, and must not return rows.
+ * Helper for executing statements as a single JDBC batch. The batch must not be empty; all
+ * statements must share the same SQL text, statement name, operation name, and collection name, and
+ * must not return rows.
  */
 final class StatementBatch<R> {
   private final List<Statement<R>> statements;
   private final String sql;
+  private final String statementName;
   private final Optional<String> operationName;
   private final Optional<String> collectionName;
 
   /**
-   * Create a batch of statements to execute together. All statements must be of the same type (i.e.
-   * have the same SQL text, operation name, and collection name) and must not return rows.
+   * Create a batch of statements to execute together. The batch must not be empty; all statements
+   * must be of the same type (i.e. have the same SQL text, operation name, and collection name) and
+   * must not return rows.
    *
    * @param statements the statements to execute in batch
+   * @throws IllegalArgumentException if {@code statements} is empty
    */
   StatementBatch(Iterable<? extends Statement<R>> statements) {
     Objects.requireNonNull(statements, "statements");
 
     List<Statement<R>> batch = new ArrayList<>();
     String batchSql = null;
+    String batchStatementName = null;
     Optional<String> batchOperationName = null;
     Optional<String> batchCollectionName = null;
     for (Statement<R> statement : statements) {
@@ -40,15 +45,21 @@ final class StatementBatch<R> {
       }
 
       String statementSql = Objects.requireNonNull(batchStatement.sql(), "sql");
+      String statementStatementName = batchStatement.statementName();
       Optional<String> statementOperationName = batchStatement.operationName();
       Optional<String> statementCollectionName = batchStatement.collectionName();
       if (batchSql == null) {
         batchSql = statementSql;
+        batchStatementName = statementStatementName;
         batchOperationName = statementOperationName;
         batchCollectionName = statementCollectionName;
       } else {
         if (!batchSql.equals(statementSql)) {
           throw new IllegalArgumentException("All batch statements must use the same SQL text");
+        }
+        if (!batchStatementName.equals(statementStatementName)) {
+          throw new IllegalArgumentException(
+              "All batch statements must use the same statement name");
         }
         if (!batchOperationName.equals(statementOperationName)) {
           throw new IllegalArgumentException(
@@ -63,23 +74,38 @@ final class StatementBatch<R> {
       batch.add(batchStatement);
     }
 
+    if (batch.isEmpty()) {
+      throw new IllegalArgumentException("Batch must not be empty");
+    }
+
     this.statements = batch;
     this.sql = batchSql;
+    this.statementName = batchStatementName;
     this.operationName = batchOperationName == null ? Optional.empty() : batchOperationName;
     this.collectionName = batchCollectionName == null ? Optional.empty() : batchCollectionName;
   }
 
   /**
-   * The shared SQL text of the batch, or {@code null} if the batch is empty.
+   * The shared SQL text of the batch.
    *
-   * @return the shared SQL text of the batch, or {@code null} if empty
+   * @return the shared SQL text of the batch
    */
   String sql() {
     return sql;
   }
 
   /**
-   * The shared operation name of the batch, or empty if the batch is empty.
+   * The shared statement name of the batch, identifying it among other batches. Derived from the
+   * constituent statements' shared {@link Statement#statementName()}.
+   *
+   * @return the shared statement name of the batch
+   */
+  String statementName() {
+    return statementName;
+  }
+
+  /**
+   * The shared operation name of the batch.
    *
    * @return the shared operation name of the batch
    */
@@ -88,7 +114,7 @@ final class StatementBatch<R> {
   }
 
   /**
-   * The shared collection name of the batch, or empty if the batch is empty.
+   * The shared collection name of the batch.
    *
    * @return the shared collection name of the batch
    */
@@ -139,10 +165,6 @@ final class StatementBatch<R> {
    */
   List<R> execute(Connection connection, int queryTimeoutSeconds) throws SQLException {
     Objects.requireNonNull(connection, "connection");
-
-    if (statements.isEmpty()) {
-      return List.of();
-    }
 
     try (PreparedStatement ps = connection.prepareStatement(sql)) {
       if (queryTimeoutSeconds > 0) {

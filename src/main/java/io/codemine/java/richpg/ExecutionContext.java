@@ -36,8 +36,8 @@ public interface ExecutionContext {
    * @param <R> the statement result type
    * @return the decoded results, in the same order as the input statements
    * @throws SQLException if a database access error occurs during execution
-   * @throws IllegalArgumentException if the statements are null, contain a null element, return
-   *     rows, or use different SQL text, operation name, or collection name
+   * @throws IllegalArgumentException if the statements are null, empty, contain a null element,
+   *     return rows, or use different SQL text, operation name, or collection name
    */
   <R> List<R> executeBatch(Iterable<? extends Statement<R>> statements) throws SQLException;
 

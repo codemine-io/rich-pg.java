@@ -50,18 +50,18 @@ class StatementBatchIT extends AbstractDatabaseIT {
   }
 
   @Test
-  void executeEmptyBatchReturnsEmptyList() throws Exception {
-    try (var conn = openConnection()) {
-      assertTrue(new StatementBatch<>(List.<UpdateStatement>of()).execute(conn).isEmpty());
-    }
+  void constructorRejectsEmptyIterable() {
+    var thrown =
+        assertThrows(
+            IllegalArgumentException.class, () -> new StatementBatch<>(List.<UpdateStatement>of()));
+    assertEquals("Batch must not be empty", thrown.getMessage());
   }
 
   @Test
   void executeRejectsNullConnection() {
-    var thrown =
-        assertThrows(
-            NullPointerException.class,
-            () -> new StatementBatch<>(List.<UpdateStatement>of()).execute(null));
+    var batch = new StatementBatch<>(List.of(new UpdateStatement(1, "uno")));
+
+    var thrown = assertThrows(NullPointerException.class, () -> batch.execute(null));
     assertEquals("connection", thrown.getMessage());
   }
 

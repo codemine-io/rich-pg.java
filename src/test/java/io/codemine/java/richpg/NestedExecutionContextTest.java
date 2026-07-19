@@ -1,6 +1,7 @@
 package io.codemine.java.richpg;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.zaxxer.hikari.HikariPoolMXBean;
 import io.codemine.java.postgresql.jdbc.Statement;
@@ -82,7 +83,7 @@ class NestedExecutionContextTest {
 
     var span =
         exporter.getFinishedSpanItems().stream()
-            .filter(s -> s.getName().equals("batch"))
+            .filter(s -> s.getName().equals("UpdateStatement"))
             .findFirst()
             .orElseThrow();
     assertThat(span.getAttributes().get(AttributeKey.longKey("db.operation.batch.size")))
@@ -96,7 +97,7 @@ class NestedExecutionContextTest {
   }
 
   @Test
-  void executeBatchOnEmptyIterableStillRecordsASpan() throws SQLException {
+  void executeBatchRejectsEmptyIterable() {
     InMemorySpanExporter exporter = InMemorySpanExporter.create();
     Telemetry telemetry = telemetryWith(exporter);
     List<Statement<?>> seen = new java.util.ArrayList<>();
@@ -104,20 +105,10 @@ class NestedExecutionContextTest {
         new NestedExecutionContext(
             telemetry, delegateReturning(seen, List.of()), Span.getInvalid());
 
-    List<Integer> result = context.executeBatch(List.<UpdateStatement>of());
-
-    assertThat(result).isEmpty();
+    assertThatThrownBy(() -> context.executeBatch(List.<UpdateStatement>of()))
+        .isInstanceOf(IllegalArgumentException.class);
     assertThat(seen).isEmpty();
-
-    var span =
-        exporter.getFinishedSpanItems().stream()
-            .filter(s -> s.getName().equals("batch"))
-            .findFirst()
-            .orElseThrow();
-    assertThat(span.getAttributes().get(AttributeKey.longKey("db.operation.batch.size")))
-        .isEqualTo(0L);
-    assertThat(span.getStatus().getStatusCode())
-        .isEqualTo(io.opentelemetry.api.trace.StatusCode.OK);
+    assertThat(exporter.getFinishedSpanItems()).isEmpty();
   }
 
   private record UpdateStatement(int id, String value) implements Statement<Integer> {

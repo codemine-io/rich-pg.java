@@ -264,7 +264,7 @@ final class Telemetry {
   /** Starts a batch CLIENT span (covers all attempts). */
   StatementHandle startBatch(StatementBatch<?> batch, Span parentSpan) {
     return startStatementSpan(
-        "batch",
+        batch.statementName(),
         batch.sql(),
         batch.operationName(),
         batch.collectionName(),

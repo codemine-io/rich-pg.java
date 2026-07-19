@@ -97,11 +97,10 @@ class StatementBatchTest {
   }
 
   @Test
-  void emptyBatchHasEmptyOperationAndCollectionNames() {
-    var batch = new StatementBatch<Integer>(List.of());
-
-    assertEquals(Optional.empty(), batch.operationName());
-    assertEquals(Optional.empty(), batch.collectionName());
+  void constructorRejectsEmptyIterable() {
+    var thrown =
+        assertThrows(IllegalArgumentException.class, () -> new StatementBatch<Integer>(List.of()));
+    assertEquals("Batch must not be empty", thrown.getMessage());
   }
 
   private record UpdateStatement(
