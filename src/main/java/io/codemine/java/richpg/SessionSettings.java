@@ -5,6 +5,7 @@ import com.zaxxer.hikari.HikariDataSource;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
 import java.time.Duration;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -37,6 +38,8 @@ import java.util.Objects;
  *     returns the cached result of the most recent probe; must be positive
  * @param closeDrainDeadline maximum time {@link Session#close()} waits for active connections to
  *     drain before forcing pool shutdown; must not be negative
+ * @param durationHistogramBoundaries explicit bucket boundaries, in seconds, advised for the {@code
+ *     db.client.operation.duration} histogram; must not be null or empty
  * @param openTelemetry OpenTelemetry instance used for tracing and metrics
  * @param scopeName the OpenTelemetry instrumentation-scope name, e.g. what {@code
  *     openTelemetry.getTracer(scopeName, scopeVersion)} uses
@@ -58,6 +61,7 @@ public record SessionSettings(
     Duration healthCheckTimeout,
     Duration healthCheckPeriod,
     Duration closeDrainDeadline,
+    List<Double> durationHistogramBoundaries,
     OpenTelemetry openTelemetry,
     String scopeName,
     String scopeVersion,
@@ -69,6 +73,10 @@ public record SessionSettings(
 
   /** Default number of retry attempts shared by the statement and transaction retry loops. */
   static final int DEFAULT_RETRY_ATTEMPTS = 3;
+
+  /** Default explicit bucket boundaries, in seconds, for the duration histogram. */
+  static final List<Double> DEFAULT_DURATION_HISTOGRAM_BOUNDARIES =
+      List.of(0.001, 0.01, 0.1, 1.0, 10.0, 100.0);
 
   /**
    * Validates the record's components.
@@ -86,6 +94,7 @@ public record SessionSettings(
     Objects.requireNonNull(healthCheckTimeout, "healthCheckTimeout");
     Objects.requireNonNull(healthCheckPeriod, "healthCheckPeriod");
     Objects.requireNonNull(closeDrainDeadline, "closeDrainDeadline");
+    Objects.requireNonNull(durationHistogramBoundaries, "durationHistogramBoundaries");
     Objects.requireNonNull(openTelemetry, "openTelemetry");
     Objects.requireNonNull(scopeName, "scopeName");
     Objects.requireNonNull(scopeVersion, "scopeVersion");
@@ -115,14 +124,17 @@ public record SessionSettings(
     if (closeDrainDeadline.isNegative()) {
       throw new IllegalArgumentException("closeDrainDeadline must not be negative");
     }
+    if (durationHistogramBoundaries.isEmpty()) {
+      throw new IllegalArgumentException("durationHistogramBoundaries must not be empty");
+    }
   }
 
   /**
    * Creates settings with the given required fields and default values for everything else: a
    * maximum pool size of 10, a 30-second connection timeout, a 30-second statement timeout, 3 retry
    * attempts, a 1-second slow-query-log threshold, a 2-second health-check timeout, a 10-second
-   * health-check period, a 10-second close-drain deadline, and the global {@link OpenTelemetry}
-   * instance.
+   * health-check period, a 10-second close-drain deadline, duration histogram boundaries of {@code
+   * [0.001, 0.01, 0.1, 1.0, 10.0, 100.0]} seconds, and the global {@link OpenTelemetry} instance.
    *
    * <p>Because this factory has no knowledge of the calling artifact, the instrumentation scope
    * name, scope version, pool name and artifact name are populated with generic, library-level
@@ -151,6 +163,7 @@ public record SessionSettings(
         Duration.ofSeconds(2),
         Duration.ofSeconds(10),
         Duration.ofSeconds(10),
+        DEFAULT_DURATION_HISTOGRAM_BOUNDARIES,
         GlobalOpenTelemetry.get(),
         "io.codemine.java.rich-pg",
         MODULE_VERSION,
@@ -310,6 +323,21 @@ public record SessionSettings(
   }
 
   /**
+   * Returns a copy of this settings instance with the given duration histogram boundaries.
+   *
+   * @param durationHistogramBoundaries the explicit bucket boundaries, in seconds, to advise for
+   *     the {@code db.client.operation.duration} histogram; must not be empty
+   * @return a new {@code SessionSettings}
+   * @throws NullPointerException if {@code durationHistogramBoundaries} is null
+   * @throws IllegalArgumentException if {@code durationHistogramBoundaries} is empty
+   */
+  public SessionSettings withDurationHistogramBoundaries(List<Double> durationHistogramBoundaries) {
+    Fields f = fields();
+    f.durationHistogramBoundaries = durationHistogramBoundaries;
+    return f.build();
+  }
+
+  /**
    * Returns a copy of this settings instance with the given OpenTelemetry instance.
    *
    * @param openTelemetry the OpenTelemetry instance to apply
@@ -387,6 +415,7 @@ public record SessionSettings(
     f.healthCheckTimeout = healthCheckTimeout;
     f.healthCheckPeriod = healthCheckPeriod;
     f.closeDrainDeadline = closeDrainDeadline;
+    f.durationHistogramBoundaries = durationHistogramBoundaries;
     f.openTelemetry = openTelemetry;
     f.scopeName = scopeName;
     f.scopeVersion = scopeVersion;
@@ -397,7 +426,7 @@ public record SessionSettings(
 
   /**
    * Every component, mutable, so a {@code with*} method can change exactly the field it names and
-   * pass the rest through unchanged without re-listing all 15 constructor arguments at each call
+   * pass the rest through unchanged without re-listing all 16 constructor arguments at each call
    * site. Not part of the public API; the public shape stays a record with individual withers.
    */
   private static final class Fields {
@@ -412,6 +441,7 @@ public record SessionSettings(
     Duration healthCheckTimeout;
     Duration healthCheckPeriod;
     Duration closeDrainDeadline;
+    List<Double> durationHistogramBoundaries;
     OpenTelemetry openTelemetry;
     String scopeName;
     String scopeVersion;
@@ -431,6 +461,7 @@ public record SessionSettings(
           healthCheckTimeout,
           healthCheckPeriod,
           closeDrainDeadline,
+          durationHistogramBoundaries,
           openTelemetry,
           scopeName,
           scopeVersion,
@@ -464,6 +495,8 @@ public record SessionSettings(
         + healthCheckPeriod
         + ", closeDrainDeadline="
         + closeDrainDeadline
+        + ", durationHistogramBoundaries="
+        + durationHistogramBoundaries
         + ", openTelemetry="
         + openTelemetry
         + ", scopeName="

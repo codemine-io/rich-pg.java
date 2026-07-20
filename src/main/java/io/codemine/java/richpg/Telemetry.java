@@ -145,10 +145,9 @@ final class Telemetry {
             .histogramBuilder(METRIC_NAME)
             .setUnit("s")
             .setDescription("Duration of database client operations")
-            // OTel semconv boundaries for db.client.operation.duration; the SDK default
-            // boundaries are millisecond-scaled and collapse second-unit values into one bucket.
-            .setExplicitBucketBoundariesAdvice(
-                List.of(0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0))
+            // The SDK default boundaries are millisecond-scaled and collapse second-unit values
+            // into one bucket, so the caller-configured boundaries are advised instead.
+            .setExplicitBucketBoundariesAdvice(settings.durationHistogramBoundaries())
             .build();
     LongCounter statementRetries =
         meter
