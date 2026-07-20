@@ -38,6 +38,7 @@ class SessionIT extends AbstractDatabaseIT {
       AttributeKey.stringKey("pgenie.statement.outcome");
   private static final AttributeKey<Long> CLOSE_CONNECTIONS_REMAINING_KEY =
       AttributeKey.longKey("pgenie.session.close.connections_remaining");
+  private static final AttributeKey<String> ERROR_TYPE_KEY = AttributeKey.stringKey("error.type");
 
   private InMemorySpanExporter spanExporter;
   private InMemoryMetricReader metricReader;
@@ -112,6 +113,8 @@ class SessionIT extends AbstractDatabaseIT {
     assertFalse(
         durationMetricPoints().isEmpty(),
         "expected db.client.operation.duration to be recorded for the transaction");
+    assertEquals(
+        null, durationMetricErrorType("transaction"), "error.type must be absent on success");
   }
 
   @Test
@@ -261,6 +264,7 @@ class SessionIT extends AbstractDatabaseIT {
     assertEquals(StatusCode.ERROR, transactionSpan.getStatus().getStatusCode());
     assertEquals(2L, transactionSpan.getAttributes().get(ATTEMPT_COUNT_KEY));
     assertEquals("retries_exhausted", transactionSpan.getAttributes().get(OUTCOME_KEY));
+    assertEquals("retries_exhausted", durationMetricErrorType("transaction"));
   }
 
   @Test
@@ -284,6 +288,7 @@ class SessionIT extends AbstractDatabaseIT {
     assertEquals(StatusCode.ERROR, transactionSpan.getStatus().getStatusCode());
     assertEquals(1L, transactionSpan.getAttributes().get(ATTEMPT_COUNT_KEY));
     assertEquals("non_retryable_failure", transactionSpan.getAttributes().get(OUTCOME_KEY));
+    assertEquals("non_retryable_failure", durationMetricErrorType("transaction"));
   }
 
   private SessionSettings config() {
@@ -322,6 +327,24 @@ class SessionIT extends AbstractDatabaseIT {
     return metricReader.collectAllMetrics().stream()
         .filter(m -> m.getName().equals("db.client.operation.duration"))
         .toList();
+  }
+
+  /**
+   * The {@code error.type} attribute of the sole {@code db.client.operation.duration} point whose
+   * {@code pgenie.operation.type} attribute matches {@code operationType} (a transaction span's
+   * duration point coexists with its nested statements' duration points under the same metric
+   * name).
+   */
+  private String durationMetricErrorType(String operationType) {
+    AttributeKey<String> operationTypeKey = AttributeKey.stringKey("pgenie.operation.type");
+    List<MetricData> points = durationMetricPoints();
+    assertEquals(1, points.size(), points::toString);
+    var histogramPoints =
+        points.get(0).getHistogramData().getPoints().stream()
+            .filter(p -> operationType.equals(p.getAttributes().get(operationTypeKey)))
+            .toList();
+    assertEquals(1, histogramPoints.size(), histogramPoints::toString);
+    return histogramPoints.get(0).getAttributes().get(ERROR_TYPE_KEY);
   }
 
   private record SelectOneStatement() implements Statement<String> {

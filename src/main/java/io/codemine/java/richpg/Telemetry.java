@@ -79,6 +79,7 @@ final class Telemetry {
   private static final AttributeKey<Long> ATTEMPT_NUMBER = AttributeKey.longKey("attempt.number");
   private static final AttributeKey<Double> ATTEMPT_DURATION_SECONDS =
       AttributeKey.doubleKey("attempt.duration_seconds");
+  private static final AttributeKey<String> ERROR_TYPE = AttributeKey.stringKey("error.type");
 
   static final String OPERATION_TYPE_STATEMENT = "statement";
   static final String OPERATION_TYPE_BATCH = "batch";
@@ -387,6 +388,7 @@ final class Telemetry {
     private final Span span;
     private final String statementName;
     private final long startNanos = System.nanoTime();
+    private String errorType;
 
     private StatementOperationHandle(Span span, String statementName) {
       this.span = span;
@@ -407,21 +409,22 @@ final class Telemetry {
           attempts,
           outcomeLabel,
           failure);
+      errorType = errorType(outcome);
       logIfExhausted(statementName, outcome, attempts, failure);
     }
 
     @Override
     public void close() {
       Duration duration = Duration.ofNanos(System.nanoTime() - startNanos);
-      recordDuration(
-          duration,
-          Attributes.of(
-              DB_SYSTEM_NAME,
-              DB_SYSTEM,
-              STATEMENT_NAME,
-              statementName,
-              OPERATION_TYPE,
-              OPERATION_TYPE_STATEMENT));
+      var attrs =
+          Attributes.builder()
+              .put(DB_SYSTEM_NAME, DB_SYSTEM)
+              .put(STATEMENT_NAME, statementName)
+              .put(OPERATION_TYPE, OPERATION_TYPE_STATEMENT);
+      if (errorType != null) {
+        attrs.put(ERROR_TYPE, errorType);
+      }
+      recordDuration(duration, attrs.build());
       logIfSlow(statementName, duration);
       span.end();
     }
@@ -460,6 +463,7 @@ final class Telemetry {
     private final Span span;
     private final String transactionName;
     private final long startNanos = System.nanoTime();
+    private String errorType;
 
     private TransactionOperationHandle(Span span, String transactionName) {
       this.span = span;
@@ -480,6 +484,7 @@ final class Telemetry {
           attempts,
           outcomeLabel,
           failure);
+      errorType = errorType(outcome);
       logIfExhausted("Transaction", outcome, attempts, failure);
     }
 
@@ -493,6 +498,9 @@ final class Telemetry {
       if (transactionName != null) {
         attrs.put(TRANSACTION_NAME, transactionName);
       }
+      if (errorType != null) {
+        attrs.put(ERROR_TYPE, errorType);
+      }
       recordDuration(duration, attrs.build());
       logIfSlow(transactionName != null ? transactionName : "transaction", duration);
       span.end();
@@ -502,6 +510,18 @@ final class Telemetry {
   private static String outcomeLabel(Outcome outcome, String succeededLabel) {
     return switch (outcome) {
       case SUCCEEDED -> succeededLabel;
+      case RETRIES_EXHAUSTED -> OUTCOME_RETRIES_EXHAUSTED;
+      case NON_RETRYABLE_FAILURE -> OUTCOME_NON_RETRYABLE_FAILURE;
+    };
+  }
+
+  /**
+   * The {@code error.type} value for the operation duration histogram: {@code null} (attribute
+   * omitted) on success, matching OTel semantic conventions.
+   */
+  private static String errorType(Outcome outcome) {
+    return switch (outcome) {
+      case SUCCEEDED -> null;
       case RETRIES_EXHAUSTED -> OUTCOME_RETRIES_EXHAUSTED;
       case NON_RETRYABLE_FAILURE -> OUTCOME_NON_RETRYABLE_FAILURE;
     };

@@ -12,6 +12,10 @@
 - The `io.codemine.java.richpg.observability` package is deleted. Telemetry is now internal to a single package-private `Telemetry` class. Span/metric shape changed: standalone retried statements get one `CLIENT` span with per-attempt failure span events; statements inside transactions get single-attempt `CLIENT` spans with no retry events.
 - Batch execution's statement-batching helper moved from `postgresql-jdbc`'s public `StatementBatch` to an internal, package-private class in `rich-pg`. `executeBatch` now also rejects a batch whose statements disagree on `operationName()`/`collectionName()`, not just `sql()`.
 
+## Non-breaking
+
+- `db.client.operation.duration` now carries an `error.type` attribute (`retries_exhausted` or `non_retryable_failure`) on standalone statements and transactions that fail, omitted on success, following OTel semantic conventions. Existing queries against the metric are unaffected since this only adds a label.
+
 ## Fixes
 
 - `db.client.operation.duration` is now recorded once per standalone statement and per transaction, not just for statements nested inside a transaction; slow-query logging likewise now applies to those operations.

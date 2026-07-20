@@ -124,12 +124,13 @@ implementation detail:
 | Span (`INTERNAL`) | `transaction` | isolation level, max attempts, read-only, attempt count, outcome |
 | Span (`CLIENT`) | `healthCheck` | `db.system.name` only |
 | Span (`INTERNAL`) | `session.close` | `pgenie.session.close.connections_remaining` |
-| Metric (histogram, `s`) | `db.client.operation.duration` | per statement/batch |
+| Metric (histogram, `s`) | `db.client.operation.duration` | per statement/batch/transaction; standalone statements and transactions carry `error.type` (`retries_exhausted`/`non_retryable_failure`), omitted on success |
+| Metric (counter) | `pgenie.statement.retries` | undimensioned |
 | Metric (counter) | `pgenie.transaction.retries` | undimensioned |
 | Metric (gauge) | `pgenie.pool.connections.{active,idle,pending,total}` | tagged `pool.name` |
 | Log (`info`) | session opened / closing / closed | password redacted from the JDBC URL |
 | Log (`warn`) | slow query detected | when a statement exceeds `slowQueryLogThreshold` |
-| Log (`warn`) | transaction exhausted N attempts | only on `retries_exhausted` |
+| Log (`warn`) | statement/transaction exhausted N attempts | only on `retries_exhausted` |
 
 ## Development
 
