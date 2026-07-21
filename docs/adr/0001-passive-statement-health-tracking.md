@@ -47,6 +47,12 @@ drift; `23505` is transaction-retryable but is not drift.
 2. **Identity**: per-statement-class, keyed by `statement.getClass()`. Not
    per-SQL-text and not per-call-site — the question being answered is
    "is this kind of operation broken," not "did this one call succeed."
+   This applies unchanged to batch execution (`Session.executeBatch`):
+   `StatementBatch`'s constructor already requires every statement in a
+   batch to share the same `statementName()`, which by default (`Statement`'s
+   default method) is `getClass().getSimpleName()` — so a batch is, by
+   construction, already homogeneous in class. The batch is keyed by the
+   first statement's `getClass()`.
 
 3. **Representation**: a concurrent set of broken statement classes
    (`Set<Class<?>>`, e.g. backed by `ConcurrentHashMap.newKeySet()`), not a
@@ -71,6 +77,17 @@ drift; `23505` is transaction-retryable but is not drift.
    rollback is a transactional/business outcome, not evidence that a given
    statement's SQL or codec is broken.
 
+   For batch execution, this boundary collapses to the batch's single
+   shared class: a drift-classified failure anywhere in the batch (the
+   `executeBatch()` call or any element of the decode loop) marks that one
+   class broken, with no attempt at per-index attribution via
+   `BatchUpdateException.getUpdateCounts()`. This is a simplification
+   specific to batch, not a relaxation of the boundary above — the boundary
+   exists to avoid tainting *other* statement classes present in the same
+   transaction, and a batch has no other classes to protect, since
+   `StatementBatch` already enforces a single shared shape across all of
+   its statements.
+
 6. **Aggregation**: any broken statement class makes the overall verdict
    unhealthy. This is a readiness signal; a false negative (missing real
    drift) is worse than a noisy false positive.
@@ -86,6 +103,13 @@ drift; `23505` is transaction-retryable but is not drift.
    introduced between the two inlined call sites for this iteration — the
    duplication is accepted as visible and collapsible later, rather than
    guessing at a shared shape now.
+
+   A third site, `StatementBatch.execute()` (reached via
+   `Session.executeBatch`), gets the same split: the `ps.executeBatch()`
+   call is the execution step, the subsequent per-statement
+   `decodeAffectedRows()` loop is the decode step, and each is caught and
+   classified independently rather than left as the single undifferentiated
+   try block it is today.
 
 8. **Structure**: a new collaborator (e.g. `StatementHealthTracker`) owns
    the set and the classification, and `Session` composes its snapshot with
@@ -107,7 +131,11 @@ drift; `23505` is transaction-retryable but is not drift.
     proposes removing that default method in favor of an interface shape
     that exposes execution and decoding as separately observable steps.
     This ADR's inlining is explicitly provisional pending that design
-    conversation.
+    conversation. The batch site is unaffected by this dependency:
+    `StatementBatch.execute()` never calls `Statement.execute()`'s default
+    method in the first place (it drives `PreparedStatement.executeBatch()`
+    directly), so its execution/decode split is native to `rich-pg`'s own
+    code and does not wait on the upstream issue.
 
 ## Consequences
 
@@ -119,10 +147,16 @@ drift; `23505` is transaction-retryable but is not drift.
   cadence.
 - No decay/expiry. A statement marked broken stays broken until it executes
   again and succeeds; there is no time-based self-healing.
-- Two call sites (`Session.execute`, `ExecutionContext` implementations)
-  each carry an inlined, duplicated copy of `Statement.execute()`'s logic
-  until upstream issue #3 resolves and offers a real seam to collapse them
-  through.
+- Three call sites (`Session.execute`, `ExecutionContext` implementations,
+  `StatementBatch.execute()`) each carry their own inlined execution/decode
+  split. Two of the three duplicate `Statement.execute()`'s logic pending
+  upstream issue #3; the batch site's split is independent of that
+  dependency, since it never went through `Statement.execute()` to begin
+  with.
+- Batch execution feeds the same signal without adding a new tracking
+  dimension: a batch is one shared class by construction, so its
+  success/failure marks or clears exactly one entry, the same as a single
+  statement's would.
 - This is additional complexity in a library whose stated goal is to keep
   "non-domain plumbing" simple; the tracker, the new classifier, and the
   inlined execution logic are a real increase in surface area, taken on
@@ -131,7 +165,7 @@ drift; `23505` is transaction-retryable but is not drift.
 
 **Explicitly out of scope for this iteration:**
 
-- Any shared abstraction between the two inlined execution sites.
+- Any shared abstraction between the three inlined execution sites.
 - Any change to `ClassifiedSqlFailure`/`RetryStrategy`'s retry semantics.
 - Any weighting/percentage-based aggregation, or minimum-sample-size gating,
   beyond "any broken class -> unhealthy."
