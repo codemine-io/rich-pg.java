@@ -145,11 +145,14 @@ final class StatementBatch<R> {
    * affected-row results, in the same order as the input statements.
    *
    * @param connection the JDBC connection to use for batch execution
+   * @param statementHealthTracker updated with this batch's drift outcome, keyed by the first
+   *     statement's class (see ADR 0001 — a batch is homogeneous by construction)
    * @return a list of decoded results corresponding to each statement in the batch
    * @throws SQLException if a database access error occurs during execution
    */
-  List<R> execute(Connection connection) throws SQLException {
-    return execute(connection, 0);
+  List<R> execute(Connection connection, StatementHealthTracker statementHealthTracker)
+      throws SQLException {
+    return execute(connection, 0, statementHealthTracker);
   }
 
   /**
@@ -157,14 +160,24 @@ final class StatementBatch<R> {
    * the given query timeout. Returns a list of decoded affected-row results, in the same order as
    * the input statements.
    *
+   * <p>The {@code ps.executeBatch()} call is the execution step and the subsequent per-statement
+   * decode loop is the decode step; each is caught and classified independently for {@code
+   * statementHealthTracker}, per ADR 0001.
+   *
    * @param connection the JDBC connection to use for batch execution
    * @param queryTimeoutSeconds the query timeout to apply, in seconds; values less than or equal to
    *     0 leave the driver's default in place
+   * @param statementHealthTracker updated with this batch's drift outcome, keyed by the first
+   *     statement's class
    * @return a list of decoded results corresponding to each statement in the batch
    * @throws SQLException if a database access error occurs during execution
    */
-  List<R> execute(Connection connection, int queryTimeoutSeconds) throws SQLException {
+  List<R> execute(
+      Connection connection, int queryTimeoutSeconds, StatementHealthTracker statementHealthTracker)
+      throws SQLException {
     Objects.requireNonNull(connection, "connection");
+    Objects.requireNonNull(statementHealthTracker, "statementHealthTracker");
+    Class<?> statementClass = statements.get(0).getClass();
 
     try (PreparedStatement ps = connection.prepareStatement(sql)) {
       if (queryTimeoutSeconds > 0) {
@@ -176,11 +189,27 @@ final class StatementBatch<R> {
         ps.addBatch();
       }
 
-      int[] affectedRows = ps.executeBatch();
-      List<R> results = new ArrayList<>(affectedRows.length);
-      for (int index = 0; index < affectedRows.length; index++) {
-        results.add(statements.get(index).decodeAffectedRows(affectedRows[index]));
+      int[] affectedRows;
+      try {
+        affectedRows = ps.executeBatch();
+      } catch (SQLException executionFailure) {
+        if (IntegrationalDriftClassifier.isExecutionDrift(executionFailure)) {
+          statementHealthTracker.markBroken(statementClass);
+        }
+        throw executionFailure;
       }
+
+      List<R> results = new ArrayList<>(affectedRows.length);
+      try {
+        for (int index = 0; index < affectedRows.length; index++) {
+          results.add(statements.get(index).decodeAffectedRows(affectedRows[index]));
+        }
+      } catch (RuntimeException | SQLException decodeFailure) {
+        statementHealthTracker.markBroken(statementClass);
+        throw decodeFailure;
+      }
+
+      statementHealthTracker.markHealthy(statementClass);
       return results;
     }
   }

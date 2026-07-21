@@ -41,7 +41,8 @@ public class Session implements AutoCloseable {
 
   private final AtomicBoolean closed = new AtomicBoolean(false);
   private final ScheduledExecutorService healthCheckExecutor;
-  private volatile boolean healthy;
+  private final StatementHealthTracker statementHealthTracker = new StatementHealthTracker();
+  private volatile boolean probeHealthy;
 
   /**
    * Opens a session from the given settings.
@@ -116,7 +117,7 @@ public class Session implements AutoCloseable {
         for (int attempt = 1; ; attempt++) {
           long attemptStart = System.nanoTime();
           try {
-            R result = statement.execute(connection);
+            R result = executeTracked(statement, connection);
             operation.finish(attempt, Telemetry.Outcome.SUCCEEDED, null);
             return result;
           } catch (SQLException failure) {
@@ -186,7 +187,7 @@ public class Session implements AutoCloseable {
         var scope = operation.span().makeCurrent()) {
       Connection connection = dataSource.getConnection();
       try {
-        List<R> results = batch.execute(connection);
+        List<R> results = batch.execute(connection, statementHealthTracker);
         operation.finish(null);
         return results;
       } catch (SQLException failure) {
@@ -278,7 +279,9 @@ public class Session implements AutoCloseable {
         try (var scope = operation.span().makeCurrent()) {
           ExecutionContext instrumentedContext =
               new NestedExecutionContext(
-                  telemetry, new ConnectionExecutionContext(connection), operation.span());
+                  telemetry,
+                  new ConnectionExecutionContext(connection, statementHealthTracker),
+                  operation.span());
           for (int attempt = 1; ; attempt++) {
             long attemptStart = System.nanoTime();
             try {
@@ -324,7 +327,59 @@ public class Session implements AutoCloseable {
   }
 
   /**
-   * Report the cached result of the background health probe.
+   * Execute {@code statement} against {@code connection}, inlining {@link Statement#execute}'s body
+   * so the SQL-execution step and the decode step can be classified separately: an execution
+   * failure is drift only per {@link IntegrationalDriftClassifier#isExecutionDrift}, while any
+   * decode failure is drift unconditionally, since decoding exists only to map a real result into
+   * the statement's declared shape. See ADR 0001.
+   */
+  private <R> R executeTracked(Statement<R> statement, Connection connection) throws SQLException {
+    Class<?> statementClass = statement.getClass();
+    try (PreparedStatement ps = connection.prepareStatement(statement.sql())) {
+      R result;
+      if (statement.returnsRows()) {
+        try {
+          statement.bindParams(ps);
+          ps.execute();
+        } catch (SQLException executionFailure) {
+          if (IntegrationalDriftClassifier.isExecutionDrift(executionFailure)) {
+            statementHealthTracker.markBroken(statementClass);
+          }
+          throw executionFailure;
+        }
+        try (ResultSet rs = ps.getResultSet()) {
+          result = statement.decodeResultSet(rs);
+        } catch (RuntimeException | SQLException decodeFailure) {
+          statementHealthTracker.markBroken(statementClass);
+          throw decodeFailure;
+        }
+      } else {
+        long affectedRows;
+        try {
+          statement.bindParams(ps);
+          affectedRows = ps.executeUpdate();
+        } catch (SQLException executionFailure) {
+          if (IntegrationalDriftClassifier.isExecutionDrift(executionFailure)) {
+            statementHealthTracker.markBroken(statementClass);
+          }
+          throw executionFailure;
+        }
+        try {
+          result = statement.decodeAffectedRows(affectedRows);
+        } catch (RuntimeException | SQLException decodeFailure) {
+          statementHealthTracker.markBroken(statementClass);
+          throw decodeFailure;
+        }
+      }
+      statementHealthTracker.markHealthy(statementClass);
+      return result;
+    }
+  }
+
+  /**
+   * Report the session's current health, combining the active probe's cached result with the
+   * passive per-statement-class integrational-drift signal gathered from real statement executions
+   * (see ADR 0001).
    *
    * <p>A daemon thread probes the database every {@link SessionSettings#healthCheckPeriod()} by
    * round-tripping {@code select 1} on a connection borrowed from the pool, bounded by {@link
@@ -332,12 +387,14 @@ public class Session implements AutoCloseable {
    * any caller, a saturated or unreachable pool degrades the health state — matching
    * readiness-probe semantics ("can this instance serve traffic?") rather than bare database
    * reachability. An eager first probe runs at session open; this method never touches the pool on
-   * the calling thread.
+   * the calling thread. Independently, every real statement execution (via {@link #execute}, {@link
+   * #executeBatch}, or a transaction body) updates the drift signal for its statement class, which
+   * can catch a live schema/codec mismatch the probe's fixed {@code select 1} cannot.
    *
-   * @return {@code true} if the most recent probe's database round-trip succeeded
+   * @return the combined health verdict
    */
-  public boolean healthCheck() {
-    return healthy;
+  public HealthStatus healthCheck() {
+    return new HealthStatus(probeHealthy, statementHealthTracker.brokenStatementClasses());
   }
 
   /** Runs the eager first probe, then schedules the periodic probe on a daemon thread. */
@@ -363,11 +420,11 @@ public class Session implements AutoCloseable {
         PreparedStatement preparedStatement = connection.prepareStatement("select 1")) {
       preparedStatement.setQueryTimeout((int) settings.healthCheckTimeout().toSeconds());
       try (ResultSet resultSet = preparedStatement.executeQuery()) {
-        healthy = resultSet.next();
+        probeHealthy = resultSet.next();
         span.setStatus(StatusCode.OK);
       }
     } catch (Exception e) {
-      healthy = false;
+      probeHealthy = false;
       span.recordException(e);
       span.setStatus(StatusCode.ERROR, e.getMessage());
     } finally {
@@ -391,7 +448,7 @@ public class Session implements AutoCloseable {
     if (healthCheckExecutor != null) {
       healthCheckExecutor.shutdownNow();
     }
-    healthy = false;
+    probeHealthy = false;
 
     Telemetry.CloseHandle close = telemetry.startClose();
 

@@ -15,7 +15,9 @@ import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -58,21 +60,32 @@ class SessionStatementRetryTest {
         .next();
   }
 
-  private static Statement<String> statementReturning(String value, boolean idempotent) {
+  private static Statement<String> statementReturning(String value, boolean idempotent)
+      throws SQLException {
     Statement<String> s = Mockito.mock(Statement.class);
     Mockito.when(s.statementName()).thenReturn("selectThing");
     Mockito.when(s.sql()).thenReturn("select 1");
     Mockito.when(s.idempotent()).thenReturn(idempotent);
-    Mockito.when(s.operationName()).thenReturn(java.util.Optional.empty());
-    Mockito.when(s.collectionName()).thenReturn(java.util.Optional.empty());
+    Mockito.when(s.operationName()).thenReturn(Optional.empty());
+    Mockito.when(s.collectionName()).thenReturn(Optional.empty());
+    Mockito.when(s.returnsRows()).thenReturn(true);
+    Mockito.when(s.decodeResultSet(Mockito.any())).thenReturn(value);
     return s;
+  }
+
+  /** A {@link PreparedStatement} mock whose {@code execute()} succeeds and returns rows. */
+  private static PreparedStatement succeedingPreparedStatement() throws SQLException {
+    PreparedStatement ps = Mockito.mock(PreparedStatement.class);
+    Mockito.when(ps.execute()).thenReturn(true);
+    return ps;
   }
 
   @Test
   void succeedsOnFirstAttempt() throws SQLException {
     Statement<String> statement = statementReturning("ok", false);
-    Mockito.when(statement.execute(Mockito.any())).thenReturn("ok");
     Connection connection = Mockito.mock(Connection.class);
+    PreparedStatement ps = succeedingPreparedStatement();
+    Mockito.when(connection.prepareStatement("select 1")).thenReturn(ps);
     Mockito.when(dataSource.getConnection()).thenReturn(connection);
 
     Session session = new Session(settings, dataSource);
@@ -103,10 +116,10 @@ class SessionStatementRetryTest {
   @Test
   void retriesOnSerializationFailureSameConnection() throws SQLException {
     Statement<String> statement = statementReturning("ok", false);
-    Mockito.when(statement.execute(Mockito.any()))
-        .thenThrow(new SQLException("conflict", "40001"))
-        .thenReturn("ok");
     Connection connection = Mockito.mock(Connection.class);
+    PreparedStatement ps = Mockito.mock(PreparedStatement.class);
+    Mockito.when(ps.execute()).thenThrow(new SQLException("conflict", "40001")).thenReturn(true);
+    Mockito.when(connection.prepareStatement("select 1")).thenReturn(ps);
     Mockito.when(dataSource.getConnection()).thenReturn(connection);
 
     Session session = new Session(settings, dataSource);
@@ -128,9 +141,11 @@ class SessionStatementRetryTest {
     Statement<String> statement = statementReturning("ok", true);
     Connection failingConnection = Mockito.mock(Connection.class);
     Connection freshConnection = Mockito.mock(Connection.class);
-    Mockito.when(statement.execute(failingConnection))
-        .thenThrow(new SQLException("conn lost", "08006"));
-    Mockito.when(statement.execute(freshConnection)).thenReturn("ok");
+    PreparedStatement failingPs = Mockito.mock(PreparedStatement.class);
+    Mockito.when(failingPs.execute()).thenThrow(new SQLException("conn lost", "08006"));
+    PreparedStatement freshPs = succeedingPreparedStatement();
+    Mockito.when(failingConnection.prepareStatement("select 1")).thenReturn(failingPs);
+    Mockito.when(freshConnection.prepareStatement("select 1")).thenReturn(freshPs);
     Mockito.when(dataSource.getConnection()).thenReturn(failingConnection, freshConnection);
 
     Session session = new Session(settings, dataSource);
@@ -149,7 +164,9 @@ class SessionStatementRetryTest {
   void nonIdempotentConnectionExceptionDoesNotRetry() throws SQLException {
     Statement<String> statement = statementReturning("ok", false);
     Connection connection = Mockito.mock(Connection.class);
-    Mockito.when(statement.execute(connection)).thenThrow(new SQLException("conn lost", "08006"));
+    PreparedStatement ps = Mockito.mock(PreparedStatement.class);
+    Mockito.when(ps.execute()).thenThrow(new SQLException("conn lost", "08006"));
+    Mockito.when(connection.prepareStatement("select 1")).thenReturn(ps);
     Mockito.when(dataSource.getConnection()).thenReturn(connection);
 
     Session session = new Session(settings, dataSource);
@@ -174,7 +191,9 @@ class SessionStatementRetryTest {
   void exhaustsMaxAttempts() throws SQLException {
     Statement<String> statement = statementReturning("ok", false);
     Connection connection = Mockito.mock(Connection.class);
-    Mockito.when(statement.execute(connection)).thenThrow(new SQLException("conflict", "40001"));
+    PreparedStatement ps = Mockito.mock(PreparedStatement.class);
+    Mockito.when(ps.execute()).thenThrow(new SQLException("conflict", "40001"));
+    Mockito.when(connection.prepareStatement("select 1")).thenReturn(ps);
     Mockito.when(dataSource.getConnection()).thenReturn(connection);
 
     Session session = new Session(settings.withRetryAttempts(2), dataSource);

@@ -38,7 +38,8 @@ class ExecutionContextIT extends AbstractDatabaseIT {
   @Test
   void executeBatchAppliesUpdatesInOrder() throws Exception {
     try (var conn = openConnection()) {
-      ConnectionExecutionContext context = new ConnectionExecutionContext(conn);
+      ConnectionExecutionContext context =
+          new ConnectionExecutionContext(conn, new StatementHealthTracker());
       List<Integer> result =
           context.executeBatch(
               List.of(

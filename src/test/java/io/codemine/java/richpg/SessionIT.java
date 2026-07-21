@@ -124,7 +124,7 @@ class SessionIT extends AbstractDatabaseIT {
     try (Session session = new Session(config)) {
       // The eager probe at session open already populated the cached state; with the default
       // 10-second period no further probe runs within this test.
-      assertTrue(session.healthCheck());
+      assertTrue(session.healthCheck().healthy());
     }
 
     flush();
@@ -149,7 +149,7 @@ class SessionIT extends AbstractDatabaseIT {
       session.close();
     }
 
-    assertFalse(session.healthCheck(), "closed session must report unhealthy");
+    assertFalse(session.healthCheck().healthy(), "closed session must report unhealthy");
     long countAtClose = healthCheckSpanCount();
     Thread.sleep(300);
     assertEquals(countAtClose, healthCheckSpanCount(), "probe thread must stop on close");
@@ -493,7 +493,7 @@ class SessionIT extends AbstractDatabaseIT {
   private record SelectOneStatement() implements Statement<String> {
     @Override
     public String sql() {
-      return "select 1";
+      return "select 'one'";
     }
 
     @Override

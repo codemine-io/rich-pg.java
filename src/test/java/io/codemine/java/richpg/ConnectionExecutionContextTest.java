@@ -15,6 +15,7 @@ import java.sql.Savepoint;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 /** Unit tests for {@link ConnectionExecutionContext}. */
 public class ConnectionExecutionContextTest {
@@ -22,27 +23,33 @@ public class ConnectionExecutionContextTest {
   @Test
   void ofRejectsNullConnection() {
     var thrown =
-        assertThrows(NullPointerException.class, () -> new ConnectionExecutionContext(null));
+        assertThrows(
+            NullPointerException.class,
+            () -> new ConnectionExecutionContext(null, new StatementHealthTracker()));
     assertEquals("connection", thrown.getMessage());
   }
 
   @Test
   void executeStatementDelegatesToConnection() throws Exception {
-    RecordingHandler handler = new RecordingHandler();
-    Connection connection = recordingConnection(handler);
-    ConnectionExecutionContext context = new ConnectionExecutionContext(connection);
+    Connection connection = Mockito.mock(Connection.class);
+    PreparedStatement preparedStatement = Mockito.mock(PreparedStatement.class);
+    Mockito.when(connection.prepareStatement("select 1")).thenReturn(preparedStatement);
+    Mockito.when(preparedStatement.executeUpdate()).thenReturn(1);
+    ConnectionExecutionContext context =
+        new ConnectionExecutionContext(connection, new StatementHealthTracker());
     FakeStatement statement = new FakeStatement();
 
     String result = context.execute(statement);
 
     assertEquals("ok", result);
-    assertSame(connection, statement.seenConnection);
+    assertSame(preparedStatement, statement.seenPreparedStatement);
   }
 
   @Test
   void executeBatchRejectsEmptyIterable() {
     ConnectionExecutionContext context =
-        new ConnectionExecutionContext(recordingConnection(new RecordingHandler()));
+        new ConnectionExecutionContext(
+            recordingConnection(new RecordingHandler()), new StatementHealthTracker());
 
     var thrown =
         assertThrows(IllegalArgumentException.class, () -> context.executeBatch(List.of()));
@@ -53,7 +60,8 @@ public class ConnectionExecutionContextTest {
   @Test
   void executeBatchRejectsNullIterable() {
     ConnectionExecutionContext context =
-        new ConnectionExecutionContext(recordingConnection(new RecordingHandler()));
+        new ConnectionExecutionContext(
+            recordingConnection(new RecordingHandler()), new StatementHealthTracker());
 
     var thrown = assertThrows(NullPointerException.class, () -> context.executeBatch(null));
     assertEquals("statements", thrown.getMessage());
@@ -62,7 +70,8 @@ public class ConnectionExecutionContextTest {
   @Test
   void executeBatchRejectsNullStatement() {
     ConnectionExecutionContext context =
-        new ConnectionExecutionContext(recordingConnection(new RecordingHandler()));
+        new ConnectionExecutionContext(
+            recordingConnection(new RecordingHandler()), new StatementHealthTracker());
     List<Statement<Void>> statements = new ArrayList<>();
     statements.add(new FakeUpdateStatement());
     statements.add(null);
@@ -74,7 +83,8 @@ public class ConnectionExecutionContextTest {
   @Test
   void executeBatchRejectsRowsReturningStatement() {
     ConnectionExecutionContext context =
-        new ConnectionExecutionContext(recordingConnection(new RecordingHandler()));
+        new ConnectionExecutionContext(
+            recordingConnection(new RecordingHandler()), new StatementHealthTracker());
 
     var thrown =
         assertThrows(
@@ -87,7 +97,8 @@ public class ConnectionExecutionContextTest {
   @Test
   void executeBatchRejectsMismatchedSql() {
     ConnectionExecutionContext context =
-        new ConnectionExecutionContext(recordingConnection(new RecordingHandler()));
+        new ConnectionExecutionContext(
+            recordingConnection(new RecordingHandler()), new StatementHealthTracker());
 
     var thrown =
         assertThrows(
@@ -104,7 +115,8 @@ public class ConnectionExecutionContextTest {
   @Test
   void executeBatchRejectsNullSql() {
     ConnectionExecutionContext context =
-        new ConnectionExecutionContext(recordingConnection(new RecordingHandler()));
+        new ConnectionExecutionContext(
+            recordingConnection(new RecordingHandler()), new StatementHealthTracker());
 
     var thrown =
         assertThrows(
@@ -120,7 +132,7 @@ public class ConnectionExecutionContextTest {
     Savepoint savepoint = throwingSavepoint();
     handler.returnValue = savepoint;
     ConnectionExecutionContext context =
-        new ConnectionExecutionContext(recordingConnection(handler));
+        new ConnectionExecutionContext(recordingConnection(handler), new StatementHealthTracker());
 
     Savepoint result = context.setSavepoint();
 
@@ -132,7 +144,7 @@ public class ConnectionExecutionContextTest {
   void rollbackToSavepointDelegatesToConnection() throws Exception {
     RecordingHandler handler = new RecordingHandler();
     ConnectionExecutionContext context =
-        new ConnectionExecutionContext(recordingConnection(handler));
+        new ConnectionExecutionContext(recordingConnection(handler), new StatementHealthTracker());
     Savepoint savepoint = throwingSavepoint();
 
     context.rollback(savepoint);
@@ -144,7 +156,7 @@ public class ConnectionExecutionContextTest {
   void releaseSavepointDelegatesToConnection() throws Exception {
     RecordingHandler handler = new RecordingHandler();
     ConnectionExecutionContext context =
-        new ConnectionExecutionContext(recordingConnection(handler));
+        new ConnectionExecutionContext(recordingConnection(handler), new StatementHealthTracker());
     Savepoint savepoint = throwingSavepoint();
 
     context.releaseSavepoint(savepoint);
@@ -181,21 +193,21 @@ public class ConnectionExecutionContextTest {
   }
 
   private static final class FakeStatement implements Statement<String> {
-    Connection seenConnection;
+    PreparedStatement seenPreparedStatement;
 
     @Override
     public String sql() {
-      throw new UnsupportedOperationException("Not used");
+      return "select 1";
     }
 
     @Override
     public void bindParams(PreparedStatement ps) {
-      throw new UnsupportedOperationException("Not used");
+      this.seenPreparedStatement = ps;
     }
 
     @Override
     public boolean returnsRows() {
-      throw new UnsupportedOperationException("Not used");
+      return false;
     }
 
     @Override
@@ -205,12 +217,6 @@ public class ConnectionExecutionContextTest {
 
     @Override
     public String decodeAffectedRows(long affectedRows) {
-      throw new UnsupportedOperationException("Not used");
-    }
-
-    @Override
-    public String execute(Connection conn) {
-      this.seenConnection = conn;
       return "ok";
     }
   }

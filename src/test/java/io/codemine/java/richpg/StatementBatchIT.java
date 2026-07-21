@@ -41,7 +41,7 @@ class StatementBatchIT extends AbstractDatabaseIT {
                 new UpdateStatement(3, "tres")));
 
     try (var conn = openConnection()) {
-      assertEquals(List.of(1, 0, 1), batch.execute(conn));
+      assertEquals(List.of(1, 0, 1), batch.execute(conn, new StatementHealthTracker()));
     }
 
     assertTableValue(1, "uno");
@@ -61,7 +61,9 @@ class StatementBatchIT extends AbstractDatabaseIT {
   void executeRejectsNullConnection() {
     var batch = new StatementBatch<>(List.of(new UpdateStatement(1, "uno")));
 
-    var thrown = assertThrows(NullPointerException.class, () -> batch.execute(null));
+    var thrown =
+        assertThrows(
+            NullPointerException.class, () -> batch.execute(null, new StatementHealthTracker()));
     assertEquals("connection", thrown.getMessage());
   }
 
@@ -70,7 +72,9 @@ class StatementBatchIT extends AbstractDatabaseIT {
     var batch = new StatementBatch<>(List.of(new SleepStatement(1, 2.0)));
 
     try (var conn = openConnection()) {
-      SQLException thrown = assertThrows(SQLException.class, () -> batch.execute(conn, 1));
+      SQLException thrown =
+          assertThrows(
+              SQLException.class, () -> batch.execute(conn, 1, new StatementHealthTracker()));
       assertTrue(
           thrown.getMessage().toLowerCase().contains("cancel"),
           "Expected a statement-cancellation error, got: " + thrown.getMessage());
@@ -84,7 +88,8 @@ class StatementBatchIT extends AbstractDatabaseIT {
     var batch = new StatementBatch<>(List.of(new SleepStatement(1, 2.0)));
 
     try (var conn = openConnection()) {
-      assertEquals(List.of(1), batch.execute(conn, queryTimeoutSeconds));
+      assertEquals(
+          List.of(1), batch.execute(conn, queryTimeoutSeconds, new StatementHealthTracker()));
     }
   }
 
@@ -93,7 +98,7 @@ class StatementBatchIT extends AbstractDatabaseIT {
     var batch = new StatementBatch<>(List.of(new SleepStatement(1, 2.0)));
 
     try (var conn = openConnection()) {
-      assertEquals(List.of(1), batch.execute(conn));
+      assertEquals(List.of(1), batch.execute(conn, new StatementHealthTracker()));
     }
   }
 
