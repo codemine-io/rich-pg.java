@@ -124,7 +124,7 @@ implementation detail:
 | Span (`INTERNAL`) | `transaction` | isolation level, max attempts, read-only, attempt count, outcome |
 | Span (`CLIENT`) | `healthCheck` | `db.system.name` only |
 | Span (`INTERNAL`) | `session.close` | `pgenie.session.close.connections_remaining` |
-| Metric (histogram, `s`) | `db.client.operation.duration` | per statement/batch/transaction; standalone statements and transactions carry `error.type` (`retries_exhausted`/`non_retryable_failure`), omitted on success |
+| Metric (histogram, `s`) | `db.client.operation.duration` | per statement/batch/transaction; standalone statements, standalone batches, and transactions carry `error.type` (the terminal failure's SQLSTATE, or `unknown` if it has none), omitted on success. Statements and batches executed inside a transaction do not carry `error.type` - their failure is attributed to the enclosing transaction's outcome instead |
 | Metric (counter) | `pgenie.statement.retries` | undimensioned |
 | Metric (counter) | `pgenie.transaction.retries` | undimensioned |
 | Metric (gauge) | `pgenie.pool.connections.{active,idle,pending,total}` | tagged `pool.name` |

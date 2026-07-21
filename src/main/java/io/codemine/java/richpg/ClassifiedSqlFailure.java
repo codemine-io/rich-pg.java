@@ -72,6 +72,14 @@ final class ClassifiedSqlFailure {
         && (sqlState.equals(SERIALIZATION_FAILURE) || sqlState.equals(DEADLOCK_DETECTED));
   }
 
+  /**
+   * The extracted SQLSTATE, or {@code null} if {@code failure} carries no {@link SQLException}
+   * (directly or as its cause).
+   */
+  String sqlState() {
+    return sqlState;
+  }
+
   private static String extractSqlState(Throwable failure) {
     SQLException sqlException = extractSqlException(failure);
     return sqlException == null ? null : sqlException.getSQLState();

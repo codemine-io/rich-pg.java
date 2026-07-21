@@ -264,7 +264,7 @@ class SessionIT extends AbstractDatabaseIT {
     assertEquals(StatusCode.ERROR, transactionSpan.getStatus().getStatusCode());
     assertEquals(2L, transactionSpan.getAttributes().get(ATTEMPT_COUNT_KEY));
     assertEquals("retries_exhausted", transactionSpan.getAttributes().get(OUTCOME_KEY));
-    assertEquals("retries_exhausted", durationMetricErrorType("transaction"));
+    assertEquals("40001", durationMetricErrorType("transaction"));
   }
 
   @Test
@@ -288,7 +288,7 @@ class SessionIT extends AbstractDatabaseIT {
     assertEquals(StatusCode.ERROR, transactionSpan.getStatus().getStatusCode());
     assertEquals(1L, transactionSpan.getAttributes().get(ATTEMPT_COUNT_KEY));
     assertEquals("non_retryable_failure", transactionSpan.getAttributes().get(OUTCOME_KEY));
-    assertEquals("non_retryable_failure", durationMetricErrorType("transaction"));
+    assertEquals("42601", durationMetricErrorType("transaction"));
   }
 
   private SessionSettings config() {

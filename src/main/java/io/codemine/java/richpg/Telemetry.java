@@ -89,6 +89,7 @@ final class Telemetry {
   static final String OUTCOME_COMMITTED = "committed";
   static final String OUTCOME_RETRIES_EXHAUSTED = "retries_exhausted";
   static final String OUTCOME_NON_RETRYABLE_FAILURE = "non_retryable_failure";
+  private static final String ERROR_TYPE_UNKNOWN = "unknown";
 
   /** The terminal state of a retried operation, replacing a positional succeeded/retryable pair. */
   enum Outcome {
@@ -409,7 +410,7 @@ final class Telemetry {
           attempts,
           outcomeLabel,
           failure);
-      errorType = errorType(outcome);
+      errorType = errorTypeOf(failure);
       logIfExhausted(statementName, outcome, attempts, failure);
     }
 
@@ -484,7 +485,7 @@ final class Telemetry {
           attempts,
           outcomeLabel,
           failure);
-      errorType = errorType(outcome);
+      errorType = errorTypeOf(failure);
       logIfExhausted("Transaction", outcome, attempts, failure);
     }
 
@@ -517,14 +518,16 @@ final class Telemetry {
 
   /**
    * The {@code error.type} value for the operation duration histogram: {@code null} (attribute
-   * omitted) on success, matching OTel semantic conventions.
+   * omitted) on success, matching OTel semantic conventions; otherwise the failure's SQLSTATE, or
+   * {@value #ERROR_TYPE_UNKNOWN} when the failure carries no SQLSTATE (e.g. a plain exception
+   * thrown from a transaction body).
    */
-  private static String errorType(Outcome outcome) {
-    return switch (outcome) {
-      case SUCCEEDED -> null;
-      case RETRIES_EXHAUSTED -> OUTCOME_RETRIES_EXHAUSTED;
-      case NON_RETRYABLE_FAILURE -> OUTCOME_NON_RETRYABLE_FAILURE;
-    };
+  private static String errorTypeOf(Throwable failure) {
+    if (failure == null) {
+      return null;
+    }
+    String sqlState = new ClassifiedSqlFailure(failure).sqlState();
+    return sqlState != null ? sqlState : ERROR_TYPE_UNKNOWN;
   }
 
   private void finishOperationAttributes(

@@ -11,10 +11,11 @@
 - `Session.executeRetryable` deleted. `Session.execute` always retries — there is no non-retrying entry point.
 - The `io.codemine.java.richpg.observability` package is deleted. Telemetry is now internal to a single package-private `Telemetry` class. Span/metric shape changed: standalone retried statements get one `CLIENT` span with per-attempt failure span events; statements inside transactions get single-attempt `CLIENT` spans with no retry events.
 - Batch execution's statement-batching helper moved from `postgresql-jdbc`'s public `StatementBatch` to an internal, package-private class in `rich-pg`. `executeBatch` now also rejects a batch whose statements disagree on `operationName()`/`collectionName()`, not just `sql()`.
+- `db.client.operation.duration`'s `error.type` attribute on standalone statements and transactions now carries the terminal failure's SQLSTATE (or `unknown` if it has none), not the retry-outcome label (`retries_exhausted`/`non_retryable_failure`). The Grafana dashboard's "by outcome" panels and the two alert rules now group/fire on SQLSTATE instead. `pgenie.statement.outcome`/`pgenie.transaction.outcome` span attributes are unaffected.
 
 ## Non-breaking
 
-- `db.client.operation.duration` now carries an `error.type` attribute (`retries_exhausted` or `non_retryable_failure`) on standalone statements and transactions that fail, omitted on success, following OTel semantic conventions. Existing queries against the metric are unaffected since this only adds a label.
+- `db.client.operation.duration` now also carries `error.type` on standalone batches that fail (the failure's SQLSTATE, or `unknown`), omitted on success. Batches executed inside a transaction still carry no `error.type`, matching statements executed inside a transaction.
 
 ## Fixes
 

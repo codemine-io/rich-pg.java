@@ -167,7 +167,7 @@ class SessionStatementRetryTest {
                     io.opentelemetry.api.common.AttributeKey.stringKey("pgenie.statement.outcome")))
         .isEqualTo("non_retryable_failure");
     assertThat(durationPoint().getAttributes().get(AttributeKey.stringKey("error.type")))
-        .isEqualTo("non_retryable_failure");
+        .isEqualTo("08006");
   }
 
   @Test
@@ -202,6 +202,6 @@ class SessionStatementRetryTest {
     // Span.recordException when the final attempt also fails.
     assertThat(span.getEvents()).hasSize(2);
     assertThat(durationPoint().getAttributes().get(AttributeKey.stringKey("error.type")))
-        .isEqualTo("retries_exhausted");
+        .isEqualTo("40001");
   }
 }
