@@ -11,6 +11,7 @@ import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.metrics.SdkMeterProvider;
+import io.opentelemetry.sdk.metrics.data.HistogramPointData;
 import io.opentelemetry.sdk.metrics.data.MetricData;
 import io.opentelemetry.sdk.testing.exporter.InMemoryMetricReader;
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
@@ -289,6 +290,148 @@ class SessionIT extends AbstractDatabaseIT {
     assertEquals(1L, transactionSpan.getAttributes().get(ATTEMPT_COUNT_KEY));
     assertEquals("non_retryable_failure", transactionSpan.getAttributes().get(OUTCOME_KEY));
     assertEquals("42601", durationMetricErrorType("transaction"));
+  }
+
+  @Test
+  void transactionNonSqlFailureUsesUnknownErrorType() {
+    SessionSettings config = config();
+    try (Session session = new Session(config)) {
+      org.junit.jupiter.api.Assertions.assertThrows(
+          SQLException.class,
+          () ->
+              session.executeTransaction(
+                  ctx -> {
+                    throw new RuntimeException("business rule violated");
+                  }));
+    }
+
+    flush();
+
+    SpanData transactionSpan = singleSpanNamed("transaction");
+    assertEquals(StatusCode.ERROR, transactionSpan.getStatus().getStatusCode());
+    assertEquals("non_retryable_failure", transactionSpan.getAttributes().get(OUTCOME_KEY));
+    assertEquals("unknown", durationMetricErrorType("transaction"));
+  }
+
+  @Test
+  void executeBatchEmitsBatchSpanAndDurationMetricOnSuccess() throws SQLException {
+    SessionSettings config = config();
+    try (Session session = new Session(config)) {
+      List<Integer> results =
+          session.executeBatch(
+              List.of(
+                  new UpdateRetryCounterStatement(1, 10), new UpdateRetryCounterStatement(1, 20)));
+      assertEquals(List.of(1, 1), results);
+    }
+
+    flush();
+
+    SpanData span = singleSpanNamed("UpdateRetryCounterStatement");
+    assertEquals(SpanKind.CLIENT, span.getKind());
+    assertEquals(StatusCode.OK, span.getStatus().getStatusCode());
+    assertEquals(2L, span.getAttributes().get(AttributeKey.longKey("db.operation.batch.size")));
+
+    List<HistogramPointData> points =
+        durationMetricPoints().get(0).getHistogramData().getPoints().stream()
+            .filter(
+                p ->
+                    "batch"
+                        .equals(
+                            p.getAttributes().get(AttributeKey.stringKey("pgenie.operation.type"))))
+            .toList();
+    assertEquals(1, points.size());
+    assertEquals(null, points.get(0).getAttributes().get(ERROR_TYPE_KEY));
+  }
+
+  @Test
+  void executeBatchFailureUsesTheDriversSqlStateAsErrorType() {
+    SessionSettings config = config();
+    try (Session session = new Session(config)) {
+      SQLException thrown =
+          org.junit.jupiter.api.Assertions.assertThrows(
+              SQLException.class,
+              () ->
+                  session.executeBatch(
+                      List.of(
+                          new InsertDuplicateRetryCounterStatement(),
+                          new InsertDuplicateRetryCounterStatement())));
+
+      flush();
+
+      SpanData span = singleSpanNamed("InsertDuplicateRetryCounterStatement");
+      assertEquals(StatusCode.ERROR, span.getStatus().getStatusCode());
+
+      List<HistogramPointData> points =
+          durationMetricPoints().get(0).getHistogramData().getPoints().stream()
+              .filter(
+                  p ->
+                      "batch"
+                          .equals(
+                              p.getAttributes()
+                                  .get(AttributeKey.stringKey("pgenie.operation.type"))))
+              .toList();
+      assertEquals(1, points.size());
+      String errorType = points.get(0).getAttributes().get(ERROR_TYPE_KEY);
+      assertTrue(errorType != null && !errorType.isBlank(), "expected a non-blank error.type");
+      // The unique-violation SQLSTATE, when the driver preserves it on the thrown exception.
+      if (thrown.getSQLState() != null) {
+        assertEquals(thrown.getSQLState(), errorType);
+      }
+    }
+  }
+
+  private record UpdateRetryCounterStatement(int id, int value) implements Statement<Integer> {
+    @Override
+    public String sql() {
+      return "update retry_counter set value = ? where id = ?";
+    }
+
+    @Override
+    public void bindParams(PreparedStatement ps) throws SQLException {
+      ps.setInt(1, value);
+      ps.setInt(2, id);
+    }
+
+    @Override
+    public boolean returnsRows() {
+      return false;
+    }
+
+    @Override
+    public Integer decodeResultSet(ResultSet rs) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Integer decodeAffectedRows(long affectedRows) {
+      return Math.toIntExact(affectedRows);
+    }
+  }
+
+  /** Always inserts {@code id = 1}, which {@link AbstractDatabaseIT} already seeded. */
+  private record InsertDuplicateRetryCounterStatement() implements Statement<Integer> {
+    @Override
+    public String sql() {
+      return "insert into retry_counter (id, value) values (1, 0)";
+    }
+
+    @Override
+    public void bindParams(PreparedStatement ps) {}
+
+    @Override
+    public boolean returnsRows() {
+      return false;
+    }
+
+    @Override
+    public Integer decodeResultSet(ResultSet rs) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Integer decodeAffectedRows(long affectedRows) {
+      return Math.toIntExact(affectedRows);
+    }
   }
 
   private SessionSettings config() {

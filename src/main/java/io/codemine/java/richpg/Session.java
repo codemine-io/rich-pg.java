@@ -11,6 +11,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -139,6 +140,58 @@ public class Session implements AutoCloseable {
             }
           }
         }
+      } finally {
+        connection.close();
+      }
+    }
+  }
+
+  /**
+   * Execute {@code statements} as a single JDBC batch, standalone (not inside a transaction).
+   *
+   * <p>Unlike {@link #execute(Statement)}, a batch is never retried: it is one JDBC {@code
+   * executeBatch()} call on a connection borrowed from the internal pool, so a partial failure
+   * partway through the batch cannot be safely repeated. The batch span is parented to the current
+   * OpenTelemetry span, if any. See {@link StatementBatch} for the statements' shared-shape
+   * requirements.
+   *
+   * @param statements the statements to execute in batch
+   * @return the decoded results, in the same order as the input statements
+   * @throws SQLException if a database access error occurs during execution
+   * @throws IllegalArgumentException if the statements are null, empty, contain a null element,
+   *     return rows, or use different SQL text, operation name, or collection name
+   */
+  public <R> List<R> executeBatch(Iterable<? extends Statement<R>> statements) throws SQLException {
+    return executeBatch(statements, Span.current());
+  }
+
+  /**
+   * Execute {@code statements} as a single JDBC batch with an explicit parent span. See {@link
+   * #executeBatch(Iterable)} for the execution semantics.
+   *
+   * @param statements the statements to execute in batch
+   * @param parentSpan the parent span for the batch trace
+   * @return the decoded results, in the same order as the input statements
+   * @throws SQLException if a database access error occurs during execution
+   * @throws IllegalArgumentException if the statements are null, empty, contain a null element,
+   *     return rows, or use different SQL text, operation name, or collection name
+   */
+  public <R> List<R> executeBatch(Iterable<? extends Statement<R>> statements, Span parentSpan)
+      throws SQLException {
+    ensureOpen();
+    StatementBatch<R> batch = new StatementBatch<>(statements);
+
+    try (Telemetry.BatchOperationHandle operation =
+            telemetry.startBatchOperation(batch, parentSpan);
+        var scope = operation.span().makeCurrent()) {
+      Connection connection = dataSource.getConnection();
+      try {
+        List<R> results = batch.execute(connection);
+        operation.finish(null);
+        return results;
+      } catch (SQLException failure) {
+        operation.finish(failure);
+        throw failure;
       } finally {
         connection.close();
       }

@@ -90,6 +90,22 @@ record SelectOne() implements Statement<Integer> {
 int result = session.execute(new SelectOne());
 ```
 
+### Executing a batch
+
+```java
+List<Integer> updated = session.executeBatch(List.of(
+    new UpdateSomething(1, "a"),
+    new UpdateSomething(2, "b")
+));
+```
+
+`executeBatch` runs one JDBC `executeBatch()` call, standalone (not inside a
+transaction), on a connection borrowed from the pool. All statements in the
+batch must share the same SQL text, statement name, operation name, and
+collection name, and must not return rows; batches are never retried. To run
+a batch as part of a larger transaction, call `context.executeBatch(...)`
+from inside `executeTransaction`'s body instead.
+
 ### Executing a transaction
 
 ```java

@@ -15,6 +15,7 @@
 
 ## Non-breaking
 
+- `Session` gains standalone (non-transactional) batch execution: `executeBatch(Iterable<? extends Statement<R>>)` and `executeBatch(Iterable<? extends Statement<R>>, Span)`, mirroring `execute(Statement)`'s shape. A batch is one JDBC `executeBatch()` call on a pooled connection and is never retried.
 - `db.client.operation.duration` now also carries `error.type` on standalone batches that fail (the failure's SQLSTATE, or `unknown`), omitted on success. Batches executed inside a transaction still carry no `error.type`, matching statements executed inside a transaction.
 
 ## Fixes

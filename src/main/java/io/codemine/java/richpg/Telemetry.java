@@ -508,6 +508,67 @@ final class Telemetry {
     }
   }
 
+  /** Starts the standalone-batch operation span, covering the batch's single attempt. */
+  BatchOperationHandle startBatchOperation(StatementBatch<?> batch, Span parentSpan) {
+    var builder =
+        newSpanBuilder(batch.statementName(), SpanKind.CLIENT, parentSpan)
+            .setAttribute(DB_QUERY_TEXT, batch.sql())
+            .setAttribute(STATEMENT_NAME, batch.statementName())
+            .setAttribute(BATCH_SIZE, (long) batch.size());
+    batch.operationName().ifPresent(v -> builder.setAttribute(DB_OPERATION_NAME, v));
+    batch.collectionName().ifPresent(v -> builder.setAttribute(DB_COLLECTION_NAME, v));
+    return new BatchOperationHandle(builder.startSpan(), batch.statementName());
+  }
+
+  /**
+   * A started standalone-batch operation span plus what's needed to finish it. Unlike {@link
+   * StatementOperationHandle}/{@link TransactionOperationHandle}, a batch has no retry loop: it is
+   * one attempt, so {@link #finish} takes the failure directly instead of an attempt count and
+   * {@link Outcome}.
+   */
+  final class BatchOperationHandle implements AutoCloseable {
+    private final Span span;
+    private final String statementName;
+    private final long startNanos = System.nanoTime();
+    private String errorType;
+
+    private BatchOperationHandle(Span span, String statementName) {
+      this.span = span;
+      this.statementName = statementName;
+    }
+
+    Span span() {
+      return span;
+    }
+
+    /** Records the batch's single-attempt outcome. {@code failure} is {@code null} on success. */
+    void finish(Throwable failure) {
+      if (failure == null) {
+        span.setStatus(StatusCode.OK);
+      } else {
+        span.recordException(failure);
+        span.setStatus(StatusCode.ERROR, failure.getMessage());
+      }
+      errorType = errorTypeOf(failure);
+    }
+
+    @Override
+    public void close() {
+      Duration duration = Duration.ofNanos(System.nanoTime() - startNanos);
+      var attrs =
+          Attributes.builder()
+              .put(DB_SYSTEM_NAME, DB_SYSTEM)
+              .put(STATEMENT_NAME, statementName)
+              .put(OPERATION_TYPE, OPERATION_TYPE_BATCH);
+      if (errorType != null) {
+        attrs.put(ERROR_TYPE, errorType);
+      }
+      recordDuration(duration, attrs.build());
+      logIfSlow(statementName, duration);
+      span.end();
+    }
+  }
+
   private static String outcomeLabel(Outcome outcome, String succeededLabel) {
     return switch (outcome) {
       case SUCCEEDED -> succeededLabel;
